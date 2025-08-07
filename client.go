@@ -1,8 +1,8 @@
 package main
 
-import "net"
+import "github.com/gorilla/websocket"
 
 type Client struct {
-	Conn net.Conn
+	Conn *websocket.Conn
 	Name string
 }

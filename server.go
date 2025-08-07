@@ -1,79 +1,81 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"net"
-	"strings"
+	"github.com/gorilla/websocket"
+	"net/http"
 	"sync"
 )
 
 var (
-	Clients      = make(map[net.Conn]*Client)
+	ClientsMux sync.Mutex
+	Broadcast  = make(chan string)
+	Upgrader   = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+	Clients      = make(map[*Client]bool)
 	ClientByName = make(map[string]*Client)
-	ClientsMux   sync.Mutex
 	Messages     = make(chan string)
 )
 
-// handleConnection 连接处理
-func handleConnection(conn net.Conn) {
-	defer func() {
-		ClientsMux.Lock()
-		client := Clients[conn]
-		delete(Clients, conn)
-		delete(ClientByName, client.Name)
-		ClientsMux.Unlock()
-		Messages <- fmt.Sprintf("🛑 %s disconnected", client.Name)
-		err := conn.Close()
-		if err != nil {
-			return
-		}
-	}()
-
-	_, err := conn.Write([]byte("please input your name: "))
+func handleWS(w http.ResponseWriter, r *http.Request) {
+	ws, err := Upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println(err)
-	}
-	reader := bufio.NewReader(conn)
-	name, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Println("Error reading name: ", err)
 		return
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "Anonymous"
+	_, msg, err := ws.ReadMessage()
+	if err != nil {
+		ws.Close()
+		return
 	}
-
-	ClientsMux.Lock()
-	c := &Client{
-		Conn: conn,
+	name := string(msg)
+	cli := &Client{
+		Conn: ws,
 		Name: name,
 	}
-	Clients[conn] = c
-	ClientByName[name] = c
+	ClientsMux.Lock()
+	Clients[cli] = true
+	ClientByName[name] = cli
 	ClientsMux.Unlock()
 
-	Messages <- fmt.Sprintf("%s join chat-go", name)
+	Broadcast <- fmt.Sprintf("%s connected and join", name)
 
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		text := scanner.Text()
-		if text == "/list" {
-			sendUserList(conn)
-			continue
+	go handleClient(cli)
+}
+
+func handleClient(cli *Client) {
+	defer func() {
+		ClientsMux.Lock()
+		delete(Clients, cli)
+		ClientsMux.Unlock()
+		cli.Conn.Close()
+		Broadcast <- fmt.Sprintf("%s disconnected", cli.Name)
+	}()
+
+	for {
+		_, msg, err := cli.Conn.ReadMessage()
+		if err != nil {
+			break
 		}
-		if strings.HasPrefix(text, "@") && strings.Contains(text, ":") {
-			handlePrivateMessage(conn, text)
-			continue
+		Broadcast <- fmt.Sprintf("[%s] %s", cli.Name, string(msg))
+	}
+}
+
+func broadcaster() {
+	for {
+		msg := <-Broadcast
+		ClientsMux.Lock()
+		for c := range Clients {
+			c.Conn.WriteMessage(websocket.TextMessage, []byte(msg))
 		}
-		msg := fmt.Sprintf("[%s]: %s", name, text)
-		Messages <- msg
+		ClientsMux.Unlock()
 	}
 }
 
 // sendUserList 在线用户列表
-func sendUserList(conn net.Conn) {
+/*func sendUserList(conn net.Conn) {
 	ClientsMux.Lock()
 	defer ClientsMux.Unlock()
 
@@ -117,4 +119,4 @@ func handlePrivateMessage(conn net.Conn, text string) {
 	} else {
 		conn.Write([]byte("❌user offline \n"))
 	}
-}
+}*/

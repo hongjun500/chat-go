@@ -2,30 +2,18 @@ package main
 
 import (
 	"fmt"
-	"net"
+	"net/http"
 )
 
 func main() {
-	listener, err := net.Listen("tcp", ":8080")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("chat-go server start at listening port :8080")
+	http.Handle("/", http.FileServer(http.Dir("./static")))
 
+	http.HandleFunc("/ws", handleWS)
 	// 启动广播协程
-	go broadcast()
+	go broadcaster()
 
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			continue
-		}
-		ClientsMux.Lock()
-		Clients[conn] = &Client{
-			Conn: conn,
-			Name: "sys",
-		}
-		ClientsMux.Unlock()
-		go handleConnection(conn)
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		fmt.Println("chat-go server start at listening port :8080")
 	}
 }

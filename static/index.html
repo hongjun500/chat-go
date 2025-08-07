@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>聊天室</title>
+</head>
+<body>
+<h2>Go WebSocket 聊天室</h2>
+<div>
+    昵称：<input id="nameInput" />
+    <button onclick="connect()">连接</button>
+</div>
+<div id="chat" style="border:1px solid #ccc; height:300px; overflow:auto;"></div>
+<input id="msgInput" />
+<button onclick="sendMessage()">发送</button>
+
+<script src="chat.js"></script>
+</body>
+</html>
