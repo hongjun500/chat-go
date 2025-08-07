@@ -20,12 +20,12 @@ func main() {
 		if err != nil {
 			continue
 		}
-		clientsMux.Lock()
-		clients[conn] = &Client{
+		ClientsMux.Lock()
+		Clients[conn] = &Client{
 			Conn: conn,
 			Name: "sys",
 		}
-		clientsMux.Unlock()
+		ClientsMux.Unlock()
 		go handleConnection(conn)
 	}
 }
