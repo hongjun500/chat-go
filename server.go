@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -49,6 +50,7 @@ func handleClient(cli *Client) {
 	defer func() {
 		ClientsMux.Lock()
 		delete(Clients, cli)
+		delete(ClientByName, cli.Name)
 		ClientsMux.Unlock()
 		cli.Conn.Close()
 		Broadcast <- fmt.Sprintf("%s disconnected", cli.Name)
@@ -59,7 +61,12 @@ func handleClient(cli *Client) {
 		if err != nil {
 			break
 		}
-		Broadcast <- fmt.Sprintf("[%s] %s", cli.Name, string(msg))
+		text := string(msg)
+		if strings.HasPrefix(text, "@") && strings.Contains(text, ":") {
+			handlePrivateMessage(cli, text)
+		} else {
+			Broadcast <- fmt.Sprintf("[%s] %s", cli.Name, string(msg))
+		}
 	}
 }
 
@@ -71,6 +78,29 @@ func broadcaster() {
 			c.Conn.WriteMessage(websocket.TextMessage, []byte(msg))
 		}
 		ClientsMux.Unlock()
+	}
+}
+
+func handlePrivateMessage(conn *Client, text string) {
+
+	parts := strings.SplitN(text[1:], ":", 2)
+	if len(parts) != 2 {
+		conn.Conn.WriteMessage(websocket.TextMessage, []byte("❌private msg error, should @name:content"))
+		return
+	}
+	targetName := parts[0]
+	msg := parts[1]
+	ClientsMux.Lock()
+	target, ok := ClientByName[targetName]
+	ClientsMux.Unlock()
+	if ok {
+		// 给目标发送消息
+		target.Conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("private msg from [%s]: %s\n", conn.Name, msg)))
+
+		// 也给自己确认一下
+		conn.Conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("private msg sended [%s]: %s\n", target.Name, msg)))
+	} else {
+		conn.Conn.WriteMessage(websocket.TextMessage, []byte("❌user offline \n"))
 	}
 }
 
@@ -98,25 +128,4 @@ func broadcast() {
 }
 
 // handlePrivateMessage 私聊
-func handlePrivateMessage(conn net.Conn, text string) {
-	sender := Clients[conn]
-
-	parts := strings.SplitN(text[1:], ":", 2)
-	if len(parts) != 2 {
-		conn.Write([]byte("❌private msg error, should @name:content"))
-		return
-	}
-	targetName := parts[0]
-	msg := parts[1]
-	ClientsMux.Lock()
-	target, ok := ClientByName[targetName]
-	ClientsMux.Unlock()
-	if ok {
-		// 给目标发送消息
-		fmt.Fprintf(target.Conn, "💌private msg from [%s]: %s\n", sender.Name, msg)
-		// 也给自己确认一下
-		fmt.Fprintf(sender.Conn, "📤private msg sended [%s]: %s\n", target.Name, msg)
-	} else {
-		conn.Write([]byte("❌user offline \n"))
-	}
-}*/
+*/
