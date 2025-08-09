@@ -23,12 +23,15 @@ type Client struct {
 	mu sync.Mutex
 }
 
-// NewClient 创建带 大缓冲的 out 示例避免慢客户端阻塞
-func NewClient(id string, conn net.Conn) *Client {
+// NewClientWithBuffer 允许指定发送缓冲区大小
+func NewClientWithBuffer(id string, conn net.Conn, bufferSize int) *Client {
+	if bufferSize <= 0 {
+		bufferSize = 256
+	}
 	return &Client{
 		ID:     id,
 		Conn:   conn,
-		out:    make(chan string, 256),
+		out:    make(chan string, bufferSize),
 		closed: make(chan struct{}),
 		Meta:   make(map[string]string),
 	}

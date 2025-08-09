@@ -3,18 +3,24 @@ package transport
 import (
 	"bufio"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/hongjun500/chat-go/internal/chat"
 	"io"
 	"log"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/hongjun500/chat-go/internal/chat"
+	"github.com/hongjun500/chat-go/internal/command"
 )
 
 type TCPConn struct {
 	conn net.Conn
 	r    *bufio.Reader
+}
+
+type Options struct {
+	OutBuffer int
 }
 
 func NewTCPConn(c net.Conn) *TCPConn {
@@ -36,7 +42,13 @@ func (t *TCPConn) WriteLine(s string) error {
 
 func (t *TCPConn) Close() error { return t.conn.Close() }
 
-func StartTcp(addr string, hub *chat.Hub) error {
+// StartTcpWithRegistry 允许注入命令注册表，避免在 Hub 内部依赖命令，解开 import 循环
+func StartTcpWithRegistry(addr string, hub *chat.Hub, reg *command.Registry) error {
+	return StartTcpWithOptions(addr, hub, reg, Options{OutBuffer: 256})
+}
+
+// StartTcpWithOptions 支持设置客户端发送缓冲区大小
+func StartTcpWithOptions(addr string, hub *chat.Hub, reg *command.Registry, opt Options) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -49,20 +61,22 @@ func StartTcp(addr string, hub *chat.Hub) error {
 			log.Printf("tcp accept err:%v", err)
 			continue
 		}
-		go handleConn(conn, hub)
+		go handleConnWithRegistryAndOptions(conn, hub, reg, opt)
 	}
 }
 
-func handleConn(conn net.Conn, hub *chat.Hub) {
+func handleConnWithRegistryAndOptions(conn net.Conn, hub *chat.Hub, reg *command.Registry, opt Options) {
 	id := uuid.New().String()
 	tc := NewTCPConn(conn)
-	client := chat.NewClient(id, conn)
-	hub.RegisterClient(client)
-
+	bufferSize := opt.OutBuffer
+	meta := make(map[string]string, 1)
+	meta["level"] = "0"
+	client := chat.NewClientWithBuffer(id, conn, bufferSize)
+	client.Meta = meta
+	// 写出协程
 	go func() {
 		for msg := range client.Outgoing() {
 			if err := tc.WriteLine(msg); err != nil {
-				// 写失败（网络问题），注销客户端并退出写协程
 				log.Printf("write err to %s: %v", client.ID, err)
 				hub.UnregisterClient(client)
 				return
@@ -70,7 +84,7 @@ func handleConn(conn net.Conn, hub *chat.Hub) {
 		}
 	}()
 
-	client.Send("请输入昵称并回车：")
+	_ = tc.WriteLine("请输入昵称并回车：")
 
 	reader := tc
 	nameSet := false
@@ -78,10 +92,8 @@ func handleConn(conn net.Conn, hub *chat.Hub) {
 		line, err := reader.ReadLine()
 		if err != nil {
 			if err != io.EOF {
-				hub.UnregisterClient(client)
-				return
+				log.Printf("read from client err: %v", err)
 			}
-			log.Printf("read from client err: %v", err)
 			hub.UnregisterClient(client)
 			return
 		}
@@ -91,33 +103,20 @@ func handleConn(conn net.Conn, hub *chat.Hub) {
 		if !nameSet {
 			client.Name = line
 			nameSet = true
+			hub.RegisterClient(client)
 			client.Send("昵称设置成功：" + line)
-			hub.BroadcastLocal(client.Name, "加入了聊天室")
 			continue
 		}
-		// 命令模式
-		// 简单命令支持：/who /help /quit （阶段1，命令后续会抽象）
 		if strings.HasPrefix(line, "/") {
-			switch line {
-			case "/who":
-				client.Send("在线: " + strings.Join(hub.ListNames(), ", "))
-			case "/help":
-				client.Send("/who 查看在线, /quit 退出, /help 帮助")
-			case "/quit":
-				client.Send("再见")
-				hub.UnregisterClient(client)
-				return
-			default:
-				client.Send("未知命令: " + line + " (支持 /who /help /quit )")
+			handled, err := reg.Execute(line, &command.Context{Hub: hub, Client: client, Raw: line})
+			if handled {
+				if err != nil {
+					client.Send("命令错误: " + err.Error())
+				}
+				continue
 			}
-			continue
 		}
-
-		// 普通消息 -> 触发本地事件（异步分发给订阅者）
 		hub.BroadcastLocal(client.Name, line)
-
-		// small safety sleep to avoid tight loop; optional
 		time.Sleep(1 * time.Millisecond)
 	}
-
 }

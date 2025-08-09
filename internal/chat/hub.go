@@ -32,28 +32,21 @@ func (h *Hub) Subscribe(t EventType, fn EventHandler) {
 
 // Emit 异步分发事件给所有 handler,非阻塞返回
 func (h *Hub) Emit(e Event) {
-	h.handlersMu.Lock()
-	defer h.handlersMu.Unlock()
-	handlers := h.handlers[e.Type()]
-	if len(handlers) == 0 {
+	h.handlersMu.RLock()
+	handlers, ok := h.handlers[e.Type()]
+	// 拷贝切片以避免并发修改影响
+	var copied []EventHandler
+	if ok && len(handlers) > 0 {
+		copied = append(copied, handlers...)
+	}
+	h.handlersMu.RUnlock()
+	if len(copied) == 0 {
 		return
 	}
-	/*for _, fn := range handlers {
-		// 异步调用
-		go func(f EventHandler) {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Recovered in f %v", f)
-				}
-			}()
-		}(fn)
-	}*/
-	for _, fn := range handlers {
+	for _, fn := range copied {
 		// 异步调用，保护 handler 崩溃不影响其他
 		go func(f EventHandler) {
-			defer func() {
-				_ = recover()
-			}()
+			defer func() { _ = recover() }()
 			f(e)
 		}(fn)
 	}
@@ -67,9 +60,13 @@ func (h *Hub) RegisterClient(c *Client) {
 
 // UnregisterClient 注销客户端并发出 UserLeave 事件
 func (h *Hub) UnregisterClient(c *Client) {
-	h.clients.Delete(c.ID)
+	if _, loaded := h.clients.LoadAndDelete(c.ID); loaded {
+		c.Close()
+		h.Emit(&UserEvent{When: time.Now(), User: c, Desc: "leave"})
+		return
+	}
+	// 即便未加载成功，也确保连接被关闭
 	c.Close()
-	h.Emit(&UserEvent{When: time.Now(), User: c, Desc: "leave"})
 }
 
 // BroadcastLocal 触发本地消息事件
@@ -84,14 +81,10 @@ func (h *Hub) BroadcastRemote(from, content string, t time.Time) {
 
 // ListNames 返回在线用户名（简单实现）
 func (h *Hub) ListNames() []string {
-	out := make([]string, 0)
-	h.clients.Range(func(_, v any) bool {
+	var out []string
+	h.clients.Range(func(k, v any) bool {
 		if c, ok := v.(*Client); ok {
-			if c.Name != "" {
-				out = append(out, c.Name)
-			} else {
-				out = append(out, c.ID)
-			}
+			out = append(out, c.Name)
 		}
 		return true
 	})
