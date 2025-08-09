@@ -22,9 +22,9 @@ func main() {
 		hub.SendToAll(text)
 	})
 	hub.Subscribe(chat.EventMessageRemote, func(e chat.Event) {
-		me := e.(*chat.MessageEvent)
-		text := "[" + me.When.Format("2006-01-02 15:04:05") + "] " + me.From + ": " + me.Content + " (来自远端)"
-		hub.SendToAll(text)
+		//me := e.(*chat.MessageEvent)
+		//text := "[" + me.When.Format("2006-01-02 15:04:05") + "] " + me.From + ": " + me.Content + " (来自远端)"
+		//hub.SendToAll(text)
 	})
 
 	// 用户上下线通知（可选）
@@ -35,6 +35,30 @@ func main() {
 	hub.Subscribe(chat.EventUserLeave, func(e chat.Event) {
 		ue := e.(*chat.UserEvent)
 		hub.SendToAll("[系统] " + ue.User.Name + " 离开")
+	})
+
+	// 订阅：系统通知 -> 直接广播
+	hub.Subscribe(chat.EventSystemNotice, func(e chat.Event) {
+		se := e.(*chat.SystemNoticeEvent)
+		hub.SendToAll("[系统通知][" + se.Level + "] " + se.Content)
+	})
+
+	// 订阅：文件传输 -> 文本提示（实际数据流由订阅者自定义实现）
+	hub.Subscribe(chat.EventFileTransfer, func(e chat.Event) {
+		fe := e.(*chat.FileTransferEvent)
+		target := fe.To
+		if target == "" || target == "*" {
+			hub.SendToAll("[文件] " + fe.From + " -> 所有人: " + fe.FileName)
+			return
+		}
+		// 简单点对点提示（生产里可查找在线用户并单独推送）
+		hub.SendToAll("[文件] " + fe.From + " -> " + target + ": " + fe.FileName)
+	})
+
+	// 订阅：心跳 -> 可用于统计、活性检测，这里简单忽略或按需记录
+	hub.Subscribe(chat.EventHeartbeat, func(e chat.Event) {
+		// 可扩展：写 metrics、日志、反压控制等
+		_ = e
 	})
 
 	_ = transport.StartTcpWithRegistry(cfg.TCPAddr, hub, cmdReg)
