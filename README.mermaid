@@ -1,0 +1,40 @@
+flowchart TD
+    subgraph Hub
+        EBus[事件总线]
+    end
+
+    subgraph Clients
+        ClientA[Client A]
+        ClientB[Client B]
+        ClientC[Client C]
+    end
+
+    subgraph Command
+        CmdRegistry[命令注册表]
+        CmdHandler[命令处理器]
+    end
+
+    subgraph Store
+        DB[(PostgreSQL)]
+    end
+
+    subgraph External
+        WS[WebSocket 适配器]
+        TCP[TCP 适配器]
+        Dist[分布式消息中间件 Redis/NATS]
+    end
+
+    ClientA <--> TCP
+    ClientB <--> TCP
+    ClientC <--> WS
+
+    TCP --> Hub
+    WS --> Hub
+
+    Hub --> EBus
+    EBus --> CmdRegistry
+    CmdRegistry --> CmdHandler
+    CmdHandler --> DB
+
+    EBus --> Dist
+    Dist --> EBus

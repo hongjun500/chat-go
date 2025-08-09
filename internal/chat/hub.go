@@ -7,59 +7,105 @@ import (
 	"time"
 )
 
-type Hub struct {
-	// 注册 / 注销通道由 transport 层使用
-	register   chan *Client
-	unregister chan *Client
-	broadcast  chan *Message
-	save       chan *Message
+type EventHandler func(Event)
 
-	clients map[string]*Client
-	mu      sync.RWMutex
+type Hub struct {
+	clients sync.Map // key: client.ID -> *Client
+
+	// 按 EventType 注册的处理器
+	handlersMu sync.RWMutex
+	handlers   map[EventType][]EventHandler
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast:  make(chan *Message, 128),
-		save:       make(chan *Message, 256),
-		clients:    make(map[string]*Client),
+		handlers: make(map[EventType][]EventHandler),
 	}
 }
 
-func (h *Hub) Run() {
-	for {
-		select {
-		case c := <-h.register:
-			h.mu.Lock()
-			h.clients[c.ID] = c
-			h.mu.Unlock()
-			c.Send("欢迎！请输入你的昵称：")
-		case c := <-h.unregister:
-			h.mu.Lock()
-			if _, ok := h.clients[c.ID]; ok {
-				delete(h.clients, c.ID)
-				c.closeSend()
-				// 广播离开的消息
-				if c.Name != "" || strings.TrimSpace(c.Name) != "" {
-					h.broadcast <- &Message{
-						From:      "系统",
-						Content:   fmt.Sprintf("%s 已离开", c.Name),
-						Timestamp: time.Now(),
-					}
-				}
-			}
-			h.mu.Unlock()
-		case msg := <-h.broadcast:
-			h.mu.Lock()
-			for _, cl := range h.clients {
-				cl.Send(formatMsg(msg))
-			}
-			h.mu.Unlock()
-		}
+// Subscribe 注册事件处理器
+func (h *Hub) Subscribe(t EventType, fn EventHandler) {
+	h.handlersMu.Lock()
+	defer h.handlersMu.Unlock()
+	h.handlers[t] = append(h.handlers[t], fn)
+}
 
+// Emit 异步分发事件给所有 handler,非阻塞返回
+func (h *Hub) Emit(e Event) {
+	h.handlersMu.Lock()
+	defer h.handlersMu.Unlock()
+	handlers := h.handlers[e.Type()]
+	if len(handlers) == 0 {
+		return
 	}
+	/*for _, fn := range handlers {
+		// 异步调用
+		go func(f EventHandler) {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Recovered in f %v", f)
+				}
+			}()
+		}(fn)
+	}*/
+	for _, fn := range handlers {
+		// 异步调用，保护 handler 崩溃不影响其他
+		go func(f EventHandler) {
+			defer func() {
+				_ = recover()
+			}()
+			f(e)
+		}(fn)
+	}
+}
+
+// RegisterClient 注册客户端并发出 UserJoined 事件
+func (h *Hub) RegisterClient(c *Client) {
+	h.clients.Store(c.ID, c)
+	h.Emit(&UserEvent{When: time.Now(), User: c, Desc: "joined"})
+}
+
+// UnregisterClient 注销客户端并发出 UserLeave 事件
+func (h *Hub) UnregisterClient(c *Client) {
+	h.clients.Delete(c.ID)
+	c.Close()
+	h.Emit(&UserEvent{When: time.Now(), User: c, Desc: "leave"})
+}
+
+// BroadcastLocal 触发本地消息事件
+func (h *Hub) BroadcastLocal(from, content string) {
+	h.Emit(&MessageEvent{When: time.Now(), From: from, Content: content, Local: true})
+}
+
+// BroadcastRemote 触发远端同步消息事件（来自其它节点）
+func (h *Hub) BroadcastRemote(from, content string, t time.Time) {
+	h.Emit(&MessageEvent{When: t, From: from, Content: content, Local: false})
+}
+
+// ListNames 返回在线用户名（简单实现）
+func (h *Hub) ListNames() []string {
+	out := make([]string, 0)
+	h.clients.Range(func(_, v any) bool {
+		if c, ok := v.(*Client); ok {
+			if c.Name != "" {
+				out = append(out, c.Name)
+			} else {
+				out = append(out, c.ID)
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// SendToAll 用于本地广播（handler 可调用），直接将 msg 发到每个 client.Send()
+func (h *Hub) SendToAll(msg string) {
+	h.clients.Range(func(_, v any) bool {
+		if c, ok := v.(*Client); ok {
+			c.Send(msg)
+		}
+		return true
+	})
 }
 
 func formatMsg(m *Message) string {
@@ -68,44 +114,4 @@ func formatMsg(m *Message) string {
 		return fmt.Sprintf("[%s] %s: %s", t, m.From, m.Content)
 	}
 	return fmt.Sprintf("[%s] %s: %s", t, m.From, m.Content)
-}
-
-// ListNames 返回所有在线用户昵称，如果未设置昵称用 ID 的短形式
-func (h *Hub) ListNames() []string {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	out := make([]string, 0, len(h.clients))
-	for _, c := range h.clients {
-		if c.Name != "" {
-			out = append(out, c.Name)
-		} else {
-			out = append(out, c.ID)
-		}
-	}
-	return out
-}
-
-func (h *Hub) Register(c *Client) {
-	h.register <- c
-}
-
-func (h *Hub) Unregister(c *Client) {
-	h.unregister <- c
-}
-
-func (h *Hub) Broadcast(msg *Message) {
-	select {
-	case h.broadcast <- msg:
-	default:
-
-	}
-	select {
-	case h.save <- msg:
-	default:
-
-	}
-}
-
-func (h *Hub) SaveChannel() chan *Message {
-	return h.save
 }

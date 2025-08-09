@@ -21,7 +21,7 @@ func processCommand(h *Hub, c *Client, line string) bool {
 		c.Send("在线用户：" + strings.Join(names, ", "))
 	case "/quit":
 		c.Send("再见!")
-		h.Unregister(c)
+		h.UnregisterClient(c)
 		c.Conn.Close()
 	default:
 		c.Send(fmt.Sprintf("未知命令: %s（输入 /help 查看帮助）", cmd))
