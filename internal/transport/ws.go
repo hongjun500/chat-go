@@ -75,14 +75,10 @@ func wsHandler(w http.ResponseWriter, r *http.Request, hub *chat.Hub, reg *comma
 	}()
 
 	nameSet := false
-	var cancelDirect func()
 	for {
 		mt, data, err := conn.ReadMessage()
 		if err != nil {
 			hub.UnregisterClient(client)
-			if cancelDirect != nil {
-				cancelDirect()
-			}
 			return
 		}
 		if mt != websocket.TextMessage {
@@ -103,13 +99,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request, hub *chat.Hub, reg *comma
 			nameSet = true
 			hub.RegisterClient(client)
 			client.Send("昵称设置成功：" + line)
-			// 订阅点对点消息：仅当 To == 自己昵称时推送
-			cancelDirect = hub.SubscribeCancelable(chat.EventMessageDirect, func(e chat.Event) {
-				de := e.(*chat.DirectMessageEvent)
-				if de.To == client.Name {
-					client.Send("[私信] " + de.From + ": " + de.Content)
-				}
-			})
 			continue
 		}
 		if strings.HasPrefix(line, "/") {

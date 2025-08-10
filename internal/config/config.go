@@ -11,6 +11,11 @@ type Config struct {
 	WSAddr    string
 	HTTPAddr  string
 	LogLevel  string
+	// TCP advanced
+	TCPMode      string // legacy|json
+	ReadTimeout  int    // seconds
+	WriteTimeout int    // seconds
+	MaxFrameSize int    // bytes
 	// Redis Stream
 	RedisAddr   string
 	RedisDB     int
@@ -36,6 +41,13 @@ func Load() *Config {
 	wsAddr := getEnv("CHAT_WS_ADDR", ":8081")
 	httpAddr := getEnv("CHAT_HTTP_ADDR", ":8082")
 	logLevel := getEnv("CHAT_LOG_LEVEL", "info")
+	tcpMode := getEnv("CHAT_TCP_MODE", "json")
+	rtStr := getEnv("CHAT_TCP_READ_TIMEOUT", "60")
+	wtStr := getEnv("CHAT_TCP_WRITE_TIMEOUT", "15")
+	mfsStr := getEnv("CHAT_TCP_MAX_FRAME", "1048576")
+	rt, _ := strconv.Atoi(rtStr)
+	wt, _ := strconv.Atoi(wtStr)
+	mfs, _ := strconv.Atoi(mfsStr)
 	redisAddr := getEnv("CHAT_REDIS_ADDR", "localhost:6379")
 	redisDBStr := getEnv("CHAT_REDIS_DB", "0")
 	redisDB, _ := strconv.Atoi(redisDBStr)
@@ -44,15 +56,19 @@ func Load() *Config {
 	redisEnable := getEnv("CHAT_REDIS_ENABLE", "true") == "true"
 
 	return &Config{
-		TCPAddr:     addr,
-		OutBuffer:   outBuf,
-		WSAddr:      wsAddr,
-		HTTPAddr:    httpAddr,
-		LogLevel:    logLevel,
-		RedisAddr:   redisAddr,
-		RedisDB:     redisDB,
-		RedisStream: redisStream,
-		RedisGroup:  redisGroup,
-		RedisEnable: redisEnable,
+		TCPAddr:      addr,
+		OutBuffer:    outBuf,
+		WSAddr:       wsAddr,
+		HTTPAddr:     httpAddr,
+		LogLevel:     logLevel,
+		TCPMode:      tcpMode,
+		ReadTimeout:  rt,
+		WriteTimeout: wt,
+		MaxFrameSize: mfs,
+		RedisAddr:    redisAddr,
+		RedisDB:      redisDB,
+		RedisStream:  redisStream,
+		RedisGroup:   redisGroup,
+		RedisEnable:  redisEnable,
 	}
 }
