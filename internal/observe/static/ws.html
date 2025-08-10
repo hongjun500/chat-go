@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WS 测试</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; padding: 16px; }
+    #log { height: 50vh; overflow: auto; border: 1px solid #ccc; padding: 8px; }
+    #bar { display: flex; gap: 8px; margin-top: 8px; }
+    input[type=text] { flex: 1; padding: 8px; }
+    button { padding: 8px 12px; }
+  </style>
+  <script>
+    let ws;
+    function connect() {
+      const url = document.getElementById('url').value || 'ws://'+location.host.replace(/:\d+$/, ':8081')+'/ws';
+      ws = new WebSocket(url);
+      ws.onopen = () => append('已连接: '+url);
+      ws.onmessage = (ev) => append('<< ' + ev.data);
+      ws.onclose = () => append('连接关闭');
+      ws.onerror = (e) => append('错误: '+ e);
+    }
+    function send() {
+      const v = document.getElementById('input').value;
+      if (!ws || ws.readyState !== 1) return append('未连接');
+      ws.send(v);
+      append('>> ' + v);
+      document.getElementById('input').value = '';
+    }
+    function append(line) {
+      const el = document.getElementById('log');
+      const p = document.createElement('div');
+      p.textContent = '['+ new Date().toLocaleTimeString() +'] ' + line;
+      el.appendChild(p);
+      el.scrollTop = el.scrollHeight;
+    }
+  </script>
+  </head>
+<body>
+  <h3>WebSocket 测试</h3>
+  <div>
+    WS URL: <input id="url" type="text" style="width: 60%" placeholder="ws://localhost:8081/ws" />
+    <button onclick="connect()">连接</button>
+  </div>
+  <div id="log"></div>
+  <div id="bar">
+    <input id="input" type="text" placeholder="先输入昵称回车设置，然后可发消息或命令 /help /who /msg ..." onkeydown="if(event.key==='Enter'){send()}" />
+    <button onclick="send()">发送</button>
+  </div>
+</body>
+</html>
+
+

@@ -8,6 +8,15 @@ import (
 type Config struct {
 	TCPAddr   string
 	OutBuffer int
+	WSAddr    string
+	HTTPAddr  string
+	LogLevel  string
+	// Redis Stream
+	RedisAddr   string
+	RedisDB     int
+	RedisStream string
+	RedisGroup  string
+	RedisEnable bool
 }
 
 func getEnv(key, def string) string {
@@ -24,8 +33,26 @@ func Load() *Config {
 	if err != nil || outBuf <= 0 {
 		outBuf = 256
 	}
+	wsAddr := getEnv("CHAT_WS_ADDR", ":8081")
+	httpAddr := getEnv("CHAT_HTTP_ADDR", ":8082")
+	logLevel := getEnv("CHAT_LOG_LEVEL", "info")
+	redisAddr := getEnv("CHAT_REDIS_ADDR", "localhost:6379")
+	redisDBStr := getEnv("CHAT_REDIS_DB", "0")
+	redisDB, _ := strconv.Atoi(redisDBStr)
+	redisStream := getEnv("CHAT_REDIS_STREAM", "chat_stream")
+	redisGroup := getEnv("CHAT_REDIS_GROUP", "chat_group")
+	redisEnable := getEnv("CHAT_REDIS_ENABLE", "true") == "true"
+
 	return &Config{
-		TCPAddr:   addr,
-		OutBuffer: outBuf,
+		TCPAddr:     addr,
+		OutBuffer:   outBuf,
+		WSAddr:      wsAddr,
+		HTTPAddr:    httpAddr,
+		LogLevel:    logLevel,
+		RedisAddr:   redisAddr,
+		RedisDB:     redisDB,
+		RedisStream: redisStream,
+		RedisGroup:  redisGroup,
+		RedisEnable: redisEnable,
 	}
 }

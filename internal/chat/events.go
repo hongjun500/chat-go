@@ -10,10 +10,10 @@ const (
 	EventUserLeave     EventType = "user.leave"
 	EventMessageLocal  EventType = "message.local"
 	EventMessageRemote EventType = "message.remote" // 来自远端节点
-	// 新增：系统通知、文件传输、心跳
-	EventSystemNotice EventType = "system.notice"
-	EventFileTransfer EventType = "file.transfer"
-	EventHeartbeat    EventType = "heartbeat"
+	EventMessageDirect EventType = "message.direct" // 点对点消息
+	EventSystemNotice  EventType = "system.notice"
+	EventFileTransfer  EventType = "file.transfer"
+	EventHeartbeat     EventType = "heartbeat"
 )
 
 type Event interface {

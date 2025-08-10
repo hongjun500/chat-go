@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hongjun500/chat-go/internal/chat"
+	"github.com/hongjun500/chat-go/internal/observe"
 )
 
 type Level int
@@ -106,19 +107,30 @@ func (r *Registry) Execute(raw string, ctx *Context) (handled bool, err error) {
 	cmdName := strings.TrimPrefix(parts[0], "/")
 	cmd, ok := r.Get(cmdName)
 	if !ok {
+		observe.IncCommandError("not_found")
 		return true, fmt.Errorf("command %s not found", cmdName)
 	}
 
 	if !r.checkPermission(ctx.Client, cmd.MinLevel) {
+		observe.IncCommandError("permission")
 		return true, errors.New("permission denied")
 	}
 	ctx.Args = parts[1:]
-	return true, cmd.Handler(ctx)
+	observe.IncCommand(cmd.Name)
+	if err := cmd.Handler(ctx); err != nil {
+		observe.IncCommandError("handler")
+		return true, err
+	}
+	return true, nil
 
 }
 
 func (r *Registry) checkPermission(c *chat.Client, need Level) bool {
-	if need < levelUser || c == nil {
+	if c == nil {
+		return true
+	}
+	// 用户级命令默认允许
+	if need <= levelUser {
 		return true
 	}
 	if c.Meta == nil {

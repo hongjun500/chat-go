@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hongjun500/chat-go/internal/chat"
 	"github.com/hongjun500/chat-go/internal/command"
+	"github.com/hongjun500/chat-go/pkg/logger"
 )
 
 type TCPConn struct {
@@ -54,11 +54,11 @@ func StartTcpWithOptions(addr string, hub *chat.Hub, reg *command.Registry, opt 
 		return err
 	}
 	defer ln.Close()
-	log.Printf("TCP Listen on %s", addr)
+	logger.L().Sugar().Infow("tcp_listen", "addr", addr)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Printf("tcp accept err:%v", err)
+			logger.L().Sugar().Warnw("tcp_accept_error", "err", err)
 			continue
 		}
 		go handleConnWithRegistryAndOptions(conn, hub, reg, opt)
@@ -77,7 +77,7 @@ func handleConnWithRegistryAndOptions(conn net.Conn, hub *chat.Hub, reg *command
 	go func() {
 		for msg := range client.Outgoing() {
 			if err := tc.WriteLine(msg); err != nil {
-				log.Printf("write err to %s: %v", client.ID, err)
+				logger.L().Sugar().Warnw("tcp_write_error", "client", client.ID, "err", err)
 				hub.UnregisterClient(client)
 				return
 			}
@@ -92,7 +92,7 @@ func handleConnWithRegistryAndOptions(conn net.Conn, hub *chat.Hub, reg *command
 		line, err := reader.ReadLine()
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("read from client err: %v", err)
+				logger.L().Sugar().Warnw("tcp_read_error", "client", client.ID, "err", err)
 			}
 			hub.UnregisterClient(client)
 			return
@@ -101,6 +101,12 @@ func handleConnWithRegistryAndOptions(conn net.Conn, hub *chat.Hub, reg *command
 			continue
 		}
 		if !nameSet {
+			// 封禁校验
+			if hub.IsBanned(line) {
+				_ = tc.WriteLine("该用户已被封禁")
+				hub.UnregisterClient(client)
+				return
+			}
 			client.Name = line
 			nameSet = true
 			hub.RegisterClient(client)

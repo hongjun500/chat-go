@@ -3,6 +3,8 @@ package chat
 import (
 	"net"
 	"sync"
+
+	"github.com/hongjun500/chat-go/internal/observe"
 )
 
 type ConnWriter interface {
@@ -44,6 +46,7 @@ func (c *Client) Send(message string) {
 	default:
 		// 缓冲已满：策略可以改为断开、覆盖或统计丢弃。
 		// 这里选择简单丢弃以保证系统健康。
+		observe.IncDropped()
 	}
 }
 
