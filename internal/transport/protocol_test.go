@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -14,7 +15,9 @@ func TestFrameCodec_EncodeDecode_JSON(t *testing.T) {
 	enc := NewFrameCodec(c1)
 	dec := NewFrameCodec(c2)
 
-	want := &Envelope{Type: "chat", From: "alice", Content: "hello", Ts: time.Now().UnixMilli()}
+	// Build a chat payload inside Envelope
+	payload := mustJSON(ChatPayload{Content: "hello"})
+	want := &Envelope{Type: "chat", From: "alice", Payload: payload, Ts: time.Now().UnixMilli()}
 	go func() {
 		if err := enc.Encode(want); err != nil {
 			t.Errorf("encode error: %v", err)
@@ -25,8 +28,18 @@ func TestFrameCodec_EncodeDecode_JSON(t *testing.T) {
 	if err := dec.Decode(&got, 1<<20); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if got.Type != want.Type || got.From != want.From || got.Content != want.Content {
-		t.Fatalf("mismatch: %+v vs %+v", got, want)
+	if got.Type != want.Type || got.From != want.From {
+		t.Fatalf("mismatch header: %+v vs %+v", got, want)
+	}
+	var gp, wp ChatPayload
+	if err := json.Unmarshal(got.Payload, &gp); err != nil {
+		t.Fatalf("unmarshal got payload: %v", err)
+	}
+	if err := json.Unmarshal(want.Payload, &wp); err != nil {
+		t.Fatalf("unmarshal want payload: %v", err)
+	}
+	if gp.Content != wp.Content {
+		t.Fatalf("payload mismatch: %+v vs %+v", gp, wp)
 	}
 }
 
@@ -47,7 +60,7 @@ func TestFrameCodec_MaxSize(t *testing.T) {
 			big[i] = '0'
 		}
 	}
-	msg := &Envelope{Type: "text", Text: string(big)}
+	msg := &Envelope{Type: "text", Payload: mustJSON(TextPayload{Text: string(big)})}
 	go func() {
 		_ = enc.Encode(msg)
 	}()

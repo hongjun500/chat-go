@@ -21,21 +21,44 @@ const (
 	TCPModeJSON TCPMode = "json"
 )
 
-// Envelope is a unified message envelope transmitted over transports
-// For simplicity we keep a superset of possible fields; clients/server fill what they need
+// Envelope defines a thin, evolvable message header plus a polymorphic payload.
+//
+// Design goals:
+// - Keep transport-agnostic concerns (routing, reliability, observability) in the header
+// - Carry business-specific data in Payload (JSON) or Data (binary)
+// - Avoid a "fat" struct with many optional fields; add new features by adding new payload types
+// - One frame carries exactly one Envelope
+//
+// Typical types: text|set_name|chat|direct|command|ping|pong|ack|file_meta|file_chunk
 type Envelope struct {
-	Type    string            `json:"type"`              // text|set_name|chat|direct|command|ping|pong|ack|notice|file_meta
-	Text    string            `json:"text,omitempty"`    // for Type=text/notice and server prompts
-	Name    string            `json:"name,omitempty"`    // for Type=set_name
-	Content string            `json:"content,omitempty"` // for Type=chat/direct
-	From    string            `json:"from,omitempty"`
-	To      string            `json:"to,omitempty"`
-	Raw     string            `json:"raw,omitempty"`    // for Type=command
-	Mid     string            `json:"mid,omitempty"`    // message id used with ack
-	Status  string            `json:"status,omitempty"` // for Type=ack
-	Seq     int64             `json:"seq,omitempty"`    // for Type=ping/pong
-	Meta    map[string]string `json:"meta,omitempty"`
-	Ts      int64             `json:"ts,omitempty"` // unix ms
+	// Protocol evolution
+	Version     string `json:"version,omitempty"`     // logical protocol version
+	Type        string `json:"type"`                  // discriminator for payload
+	Schema      string `json:"schema,omitempty"`      // optional payload schema identifier
+	Datacontent string `json:"datacontent,omitempty"` // e.g. application/json, application/octet-stream
+
+	// Reliability & tracing
+	Mid         string `json:"mid,omitempty"` // message id for idempotency
+	Correlation string `json:"correlation_id,omitempty"`
+	Causation   string `json:"causation_id,omitempty"`
+	TraceID     string `json:"trace_id,omitempty"`
+
+	// Routing & tenancy (optional)
+	Tenant       string   `json:"tenant,omitempty"`
+	Conversation string   `json:"conversation_id,omitempty"`
+	From         string   `json:"from,omitempty"`
+	To           []string `json:"to,omitempty"`
+	PartitionKey string   `json:"partition_key,omitempty"`
+
+	// Time & flow control
+	Ts        int64             `json:"ts,omitempty"` // unix ms
+	TTLms     int64             `json:"ttl_ms,omitempty"`
+	ExpiresAt int64             `json:"expires_at,omitempty"`
+	Meta      map[string]string `json:"meta,omitempty"`
+
+	// Payloads
+	Payload json.RawMessage `json:"payload,omitempty"` // structured payload (JSON)
+	Data    []byte          `json:"data,omitempty"`    // large/binary payload; JSON base64-encoded
 }
 
 // FrameCodec encodes/decodes length-prefixed JSON frames: [len uint32 BE][payload bytes]

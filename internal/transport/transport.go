@@ -4,11 +4,11 @@ import (
 	"context"
 )
 
-// Session represents a logical client connection independent of underlying protocol
+// Session 传输层统一的会话管理
 type Session interface {
 	ID() string
 	RemoteAddr() string
-	SendEnvelope(*Envelope) error
+	SendEnvelope(*Envelope) error // 发送消息（封装在 Envelope 结构体中）到客户端
 	Close() error
 }
 
@@ -19,7 +19,7 @@ type Gateway interface {
 	OnSessionClose(sess Session, err error)
 }
 
-// Transport runs a server endpoint and delivers messages to the gateway
+// Transport 统一的消息传输实现
 type Transport interface {
 	Name() string
 	Start(ctx context.Context, addr string, gateway Gateway, opt Options) error

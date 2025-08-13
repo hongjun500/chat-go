@@ -1,10 +1,17 @@
 package transport
 
-import "io"
+import (
+	"io"
+)
 
-// MessageCodec abstracts payload encoding for framed transports (e.g., JSON, Protobuf)
+const (
+	ApplicationJson     = "application/json"
+	ApplicationProtobuf = "application/x-protobuf"
+)
+
+// MessageCodec 用户消息体数据编码解码器
 type MessageCodec interface {
+	ContentType() string
 	Encode(w io.Writer, m *Envelope) error
 	Decode(r io.Reader, m *Envelope, maxSize int) error
-	ContentType() string
 }

@@ -3,8 +3,10 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,27 +14,40 @@ import (
 	"github.com/hongjun500/chat-go/pkg/logger"
 )
 
-// tcpSession implements Session and holds a *chat.Client for Hub integration
-type tcpSession struct {
-	id     string
-	conn   net.Conn
-	codec  *FrameCodec
-	client *chat.Client
+// tcpConn implements Session and holds a *chat.Client for Hub integration
+type tcpConn struct {
+	id        string
+	conn      net.Conn
+	codec     *FrameCodec
+	client    *chat.Client
+	closeOnce sync.Once
+	closeChan chan struct{}
 }
 
-func (s *tcpSession) ID() string { return s.id }
-func (s *tcpSession) RemoteAddr() string {
-	if s.conn != nil {
-		return s.conn.RemoteAddr().String()
+func (t *tcpConn) ID() string {
+	return t.id
+}
+func (t *tcpConn) RemoteAddr() string {
+	if t.conn != nil {
+		return t.conn.RemoteAddr().String()
 	}
 	return ""
 }
-func (s *tcpSession) SendEnvelope(m *Envelope) error { return s.codec.Encode(m) }
-func (s *tcpSession) Close() error                   { return s.conn.Close() }
+func (t *tcpConn) SendEnvelope(m *Envelope) error {
+	return t.codec.Encode(m)
+}
+func (t *tcpConn) Close() error {
+	var err error
+	t.closeOnce.Do(func() {
+		err = t.conn.Close()
+		close(t.closeChan)
+	})
+	return err
+}
 
-// getClient helper expects Session to be tcpSession or similar wrapper
+// getClient helper expects Session to be tcpConn or similar wrapper
 func getClient(sess Session) *chat.Client {
-	if ts, ok := sess.(*tcpSession); ok {
+	if ts, ok := sess.(*tcpConn); ok {
 		return ts.client
 	}
 	return nil
@@ -73,10 +88,10 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 	// chat client for Hub
 	c := chat.NewClientWithBuffer(id, conn, opt.OutBuffer)
 	c.Meta = map[string]string{"level": "0"}
-	sess := &tcpSession{id: id, conn: conn, codec: framed, client: c}
+	sess := &tcpConn{id: id, conn: conn, codec: framed, client: c}
 	gateway.OnSessionOpen(sess)
 
-	// writer: drain client outgoing to session (wrap plain text into Wire and write framed+encoded)
+	// writer: drain client outgoing to session (wrap plain text into Envelope with typed payload)
 	go func() {
 		for msg := range c.Outgoing() {
 			if opt.WriteTimeout > 0 {
@@ -84,7 +99,8 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 			}
 			// encode payload using codec then write frame
 			var buf bytes.Buffer
-			if err := s.Codec.Encode(&buf, &Envelope{Type: "text", Text: msg, Ts: time.Now().UnixMilli()}); err != nil {
+			payload, _ := json.Marshal(TextPayload{Text: msg})
+			if err := s.Codec.Encode(&buf, &Envelope{Type: "text", Payload: payload, Ts: time.Now().UnixMilli()}); err != nil {
 				logger.L().Sugar().Warnw("tcp_v2_write_error", "client", c.ID, "err", err)
 				_ = conn.Close()
 				return
