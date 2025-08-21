@@ -24,6 +24,11 @@ type tcpConn struct {
 	closeChan chan struct{}
 }
 
+// TCPServer implements Transport using length-prefixed frames and MessageCodec on top
+type TCPServer struct {
+	Codec MessageCodec
+}
+
 func (t *tcpConn) ID() string {
 	return t.id
 }
@@ -53,20 +58,15 @@ func getClient(sess Session) *chat.Client {
 	return nil
 }
 
-// TCPServer implements Transport using length-prefixed frames and MessageCodec on top
-type TCPServer struct{ Codec MessageCodec }
-
-func (s *TCPServer) Name() string { return "tcp" }
-
 func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
 	if opt.MaxFrameSize <= 0 {
 		opt.MaxFrameSize = 1 << 20
 	}
-	ln, err := net.Listen("tcp", addr)
+	ln, err := net.Listen(Tcp, addr)
 	if err != nil {
 		return err
 	}
-	logger.L().Sugar().Infow("tcp_listen_v2", "addr", addr)
+	logger.L().Sugar().Infow("tcp_listen", "addr", addr)
 	go func() { <-ctx.Done(); _ = ln.Close() }()
 	for {
 		conn, err := ln.Accept()
@@ -81,12 +81,16 @@ func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt
 	}
 }
 
+func (s *TCPServer) Name() string {
+	return Tcp
+}
+
 func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gateway, opt Options) {
 	id := uuid.New().String()
 	// framed codec for network IO
 	framed := NewFrameCodec(conn)
 	// chat client for Hub
-	c := chat.NewClientWithBuffer(id, conn, opt.OutBuffer)
+	c := chat.NewClientWithBuffer(id, opt.OutBuffer)
 	c.Meta = map[string]string{"level": "0"}
 	sess := &tcpConn{id: id, conn: conn, codec: framed, client: c}
 	gateway.OnSessionOpen(sess)
@@ -101,12 +105,12 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 			var buf bytes.Buffer
 			payload, _ := json.Marshal(TextPayload{Text: msg})
 			if err := s.Codec.Encode(&buf, &Envelope{Type: "text", Payload: payload, Ts: time.Now().UnixMilli()}); err != nil {
-				logger.L().Sugar().Warnw("tcp_v2_write_error", "client", c.ID, "err", err)
+				logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
 				_ = conn.Close()
 				return
 			}
 			if err := framed.WriteFrame(buf.Bytes()); err != nil {
-				logger.L().Sugar().Warnw("tcp_v2_write_error", "client", c.ID, "err", err)
+				logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
 				_ = conn.Close()
 				return
 			}
@@ -123,14 +127,14 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 		raw, err := framed.ReadFrame(opt.MaxFrameSize)
 		if err != nil {
 			if err != io.EOF {
-				logger.L().Sugar().Warnw("tcp_v2_decode_error", "client", id, "err", err)
+				logger.L().Sugar().Warnw("tcp_decode_error", "client", id, "err", err)
 			}
 			gateway.OnSessionClose(sess, err)
 			return
 		}
 		var env Envelope
 		if err := s.Codec.Decode(bytes.NewReader(raw), &env, opt.MaxFrameSize); err != nil {
-			logger.L().Sugar().Warnw("tcp_v2_codec_error", "client", id, "err", err)
+			logger.L().Sugar().Warnw("tcp_codec_error", "client", id, "err", err)
 			continue
 		}
 		gateway.OnEnvelope(sess, &env)

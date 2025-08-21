@@ -56,9 +56,27 @@ type Envelope struct {
 	ExpiresAt int64             `json:"expires_at,omitempty"`
 	Meta      map[string]string `json:"meta,omitempty"`
 
+	// Security
+	Signature string `json:"signature,omitempty"` // message signature for integrity verification
+	Encrypted bool   `json:"encrypted,omitempty"` // indicates if the payload is encrypted
+
+	// Priority
+	Priority int `json:"priority,omitempty"` // message priority level
+
+	// Sharding
+	ChunkIndex  int `json:"chunk_index,omitempty"`  // index of the current chunk
+	TotalChunks int `json:"total_chunks,omitempty"` // total number of chunks
+
+	// Localization
+	Language string `json:"language,omitempty"` // message language
+
+	// Status
+	Status string `json:"status,omitempty"` // message status (e.g., sent, received, read)
+
 	// Payloads
-	Payload json.RawMessage `json:"payload,omitempty"` // structured payload (JSON)
-	Data    []byte          `json:"data,omitempty"`    // large/binary payload; JSON base64-encoded
+	Payload    json.RawMessage   `json:"payload,omitempty"`    // structured payload (JSON)
+	Data       []byte            `json:"data,omitempty"`       // large/binary payload; JSON base64-encoded
+	Attributes map[string]string `json:"attributes,omitempty"` // custom attributes for extensibility
 }
 
 // FrameCodec encodes/decodes length-prefixed JSON frames: [len uint32 BE][payload bytes]

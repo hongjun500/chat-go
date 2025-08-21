@@ -42,7 +42,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request, hub *chat.Hub, reg *comma
 		return
 	}
 	id := uuid.New().String()
-	client := chat.NewClientWithBuffer(id, nil, opt.OutBuffer)
+	client := chat.NewClientWithBuffer(id, opt.OutBuffer)
 
 	// writer: flush outgoing queue to websocket
 	go func() {

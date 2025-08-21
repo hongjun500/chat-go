@@ -22,7 +22,7 @@ func TestRegistryExecute_Basic(t *testing.T) {
 		t.Fatalf("register err: %v", err)
 	}
 
-	c := chat.NewClientWithBuffer("c1", nil, 4)
+	c := chat.NewClientWithBuffer("c1", 4)
 	ctx := &Context{Hub: hub, Client: c}
 
 	handled, err := reg.Execute("/echo hi", ctx)

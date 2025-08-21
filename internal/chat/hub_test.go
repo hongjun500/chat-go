@@ -7,7 +7,7 @@ import (
 
 func TestHubRegisterUnregister(t *testing.T) {
 	hub := NewHub()
-	c := NewClientWithBuffer("id1", nil, 8)
+	c := NewClientWithBuffer("id1", 8)
 	c.Name = "alice"
 	hub.RegisterClient(c)
 
@@ -44,8 +44,8 @@ func TestSubscribeEmit(t *testing.T) {
 
 func TestSendToAll(t *testing.T) {
 	hub := NewHub()
-	a := NewClientWithBuffer("a", nil, 8)
-	b := NewClientWithBuffer("b", nil, 8)
+	a := NewClientWithBuffer("a", 8)
+	b := NewClientWithBuffer("b", 8)
 	a.Name, b.Name = "alice", "bob"
 	hub.RegisterClient(a)
 	hub.RegisterClient(b)

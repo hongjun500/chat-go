@@ -4,6 +4,11 @@ import (
 	"context"
 )
 
+const (
+	Tcp       = "tcp"
+	WebSocket = "websocket"
+)
+
 // Session 传输层统一的会话管理
 type Session interface {
 	ID() string

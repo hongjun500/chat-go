@@ -9,7 +9,9 @@ const (
 	ApplicationProtobuf = "application/x-protobuf"
 )
 
-// MessageCodec 用户消息体数据编码解码器
+type ContentType string
+
+// MessageCodec 消息体数据编码解码器
 type MessageCodec interface {
 	ContentType() string
 	Encode(w io.Writer, m *Envelope) error
