@@ -1,96 +1,26 @@
 package transport
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"time"
 )
 
-// TCPMode indicates the payload format for TCP transport
-type TCPMode string
-
-const (
-	// TCPModeLegacy uses line-based plain text (backward compatible)
-	TCPModeLegacy TCPMode = "legacy"
-	// TCPModeJSON uses length-prefixed JSON frames
-	TCPModeJSON TCPMode = "json"
-)
-
-// Envelope defines a thin, evolvable message header plus a polymorphic payload.
-//
-// Design goals:
-// - Keep transport-agnostic concerns (routing, reliability, observability) in the header
-// - Carry business-specific data in Payload (JSON) or Data (binary)
-// - Avoid a "fat" struct with many optional fields; add new features by adding new payload types
-// - One frame carries exactly one Envelope
-//
-// Typical types: text|set_name|chat|direct|command|ping|pong|ack|file_meta|file_chunk
-type Envelope struct {
-	// Protocol evolution
-	Version     string `json:"version,omitempty"`     // logical protocol version
-	Type        string `json:"type"`                  // discriminator for payload
-	Schema      string `json:"schema,omitempty"`      // optional payload schema identifier
-	Datacontent string `json:"datacontent,omitempty"` // e.g. application/json, application/octet-stream
-
-	// Reliability & tracing
-	Mid         string `json:"mid,omitempty"` // message id for idempotency
-	Correlation string `json:"correlation_id,omitempty"`
-	Causation   string `json:"causation_id,omitempty"`
-	TraceID     string `json:"trace_id,omitempty"`
-
-	// Routing & tenancy (optional)
-	Tenant       string   `json:"tenant,omitempty"`
-	Conversation string   `json:"conversation_id,omitempty"`
-	From         string   `json:"from,omitempty"`
-	To           []string `json:"to,omitempty"`
-	PartitionKey string   `json:"partition_key,omitempty"`
-
-	// Time & flow control
-	Ts        int64             `json:"ts,omitempty"` // unix ms
-	TTLms     int64             `json:"ttl_ms,omitempty"`
-	ExpiresAt int64             `json:"expires_at,omitempty"`
-	Meta      map[string]string `json:"meta,omitempty"`
-
-	// Security
-	Signature string `json:"signature,omitempty"` // message signature for integrity verification
-	Encrypted bool   `json:"encrypted,omitempty"` // indicates if the payload is encrypted
-
-	// Priority
-	Priority int `json:"priority,omitempty"` // message priority level
-
-	// Sharding
-	ChunkIndex  int `json:"chunk_index,omitempty"`  // index of the current chunk
-	TotalChunks int `json:"total_chunks,omitempty"` // total number of chunks
-
-	// Localization
-	Language string `json:"language,omitempty"` // message language
-
-	// Status
-	Status string `json:"status,omitempty"` // message status (e.g., sent, received, read)
-
-	// Payloads
-	Payload    json.RawMessage   `json:"payload,omitempty"`    // structured payload (JSON)
-	Data       []byte            `json:"data,omitempty"`       // large/binary payload; JSON base64-encoded
-	Attributes map[string]string `json:"attributes,omitempty"` // custom attributes for extensibility
+// LegacyFrameCodec provides backward compatibility for existing code that expects
+// FrameCodec to have Encode/Decode methods with hardcoded JSON.
+// This is deprecated and should be replaced with FramedMessageCodec.
+type LegacyFrameCodec struct {
+	*FrameCodec
 }
 
-// FrameCodec encodes/decodes length-prefixed JSON frames: [len uint32 BE][payload bytes]
-type FrameCodec struct {
-	r *bufio.Reader
-	w *bufio.Writer
+// NewLegacyFrameCodec creates a legacy frame codec for backward compatibility
+func NewLegacyFrameCodec(frameCodec *FrameCodec) *LegacyFrameCodec {
+	return &LegacyFrameCodec{FrameCodec: frameCodec}
 }
 
-func NewFrameCodec(conn net.Conn) *FrameCodec {
-	return &FrameCodec{r: bufio.NewReader(conn), w: bufio.NewWriter(conn)}
-}
-
-func (c *FrameCodec) Encode(msg *Envelope) error {
-	// Backward-compatible helper: JSON marshal then write frame
+// Encode encodes an Envelope as JSON and writes it as a frame
+// Deprecated: Use FramedMessageCodec with JSONCodec instead
+func (c *LegacyFrameCodec) Encode(msg *Envelope) error {
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -98,8 +28,9 @@ func (c *FrameCodec) Encode(msg *Envelope) error {
 	return c.WriteFrame(payload)
 }
 
-func (c *FrameCodec) Decode(msg *Envelope, maxSize int) error {
-	// Backward-compatible helper: read frame then JSON unmarshal
+// Decode reads a frame and decodes it as JSON into an Envelope
+// Deprecated: Use FramedMessageCodec with JSONCodec instead
+func (c *LegacyFrameCodec) Decode(msg *Envelope, maxSize int) error {
 	buf, err := c.ReadFrame(maxSize)
 	if err != nil {
 		return err
@@ -108,51 +39,4 @@ func (c *FrameCodec) Decode(msg *Envelope, maxSize int) error {
 		return fmt.Errorf("frame is not JSON object")
 	}
 	return json.Unmarshal(buf, msg)
-}
-
-// WriteFrame writes a length-prefixed payload
-func (c *FrameCodec) WriteFrame(payload []byte) error {
-	if c == nil || c.w == nil {
-		return fmt.Errorf("codec or writer is nil")
-	}
-	if len(payload) > 16*1024*1024 { // 16MB hard limit
-		return fmt.Errorf("frame too large: %d", len(payload))
-	}
-	var header [4]byte
-	binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
-	if _, err := c.w.Write(header[:]); err != nil {
-		return err
-	}
-	if _, err := c.w.Write(payload); err != nil {
-		return err
-	}
-	return c.w.Flush()
-}
-
-// ReadFrame reads a single length-prefixed payload
-func (c *FrameCodec) ReadFrame(maxSize int) ([]byte, error) {
-	if c == nil || c.r == nil {
-		return nil, fmt.Errorf("codec or reader is nil")
-	}
-	var header [4]byte
-	if _, err := io.ReadFull(c.r, header[:]); err != nil {
-		return nil, err
-	}
-	n := int(binary.BigEndian.Uint32(header[:]))
-	if n <= 0 || (maxSize > 0 && n > maxSize) {
-		return nil, fmt.Errorf("invalid frame size: %d", n)
-	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(c.r, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
-// SafeDeadline applies deadline if d>0
-func SafeDeadline(conn net.Conn, d time.Duration) {
-	if conn == nil || d <= 0 {
-		return
-	}
-	_ = conn.SetDeadline(time.Now().Add(d))
 }

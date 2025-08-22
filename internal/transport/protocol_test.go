@@ -12,8 +12,9 @@ func TestFrameCodec_EncodeDecode_JSON(t *testing.T) {
 	defer c1.Close()
 	defer c2.Close()
 
-	enc := NewFrameCodec(c1)
-	dec := NewFrameCodec(c2)
+	// Use legacy codec for backward compatibility tests
+	enc := NewLegacyFrameCodec(NewFrameCodec(c1))
+	dec := NewLegacyFrameCodec(NewFrameCodec(c2))
 
 	// Build a chat payload inside Envelope
 	payload := mustJSON(ChatPayload{Content: "hello"})
@@ -48,8 +49,9 @@ func TestFrameCodec_MaxSize(t *testing.T) {
 	defer c1.Close()
 	defer c2.Close()
 
-	enc := NewFrameCodec(c1)
-	dec := NewFrameCodec(c2)
+	// Use legacy codec for backward compatibility tests
+	enc := NewLegacyFrameCodec(NewFrameCodec(c1))
+	dec := NewLegacyFrameCodec(NewFrameCodec(c2))
 
 	// build large payload ~2MB
 	big := make([]byte, 2<<20)
