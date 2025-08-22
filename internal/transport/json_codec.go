@@ -7,6 +7,7 @@ import (
 	"io"
 )
 
+// JSONCodec 实现 Codec 接口
 type JSONCodec struct{}
 
 func (JSONCodec) ContentType() string { return ApplicationJson }

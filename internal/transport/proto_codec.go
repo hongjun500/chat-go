@@ -52,42 +52,46 @@ func (p *ProtobufCodec) Encode(w io.Writer, m *Envelope) error {
 	return err
 }
 
-func (p *ProtobufCodec) Decode(r io.Reader, m *Envelope, maxSize int) error {
-	data := make([]byte, maxSize)
-	n, err := r.Read(data)
+// 定义统一的 Codec 接口
+// ProtobufCodec 实现 Codec 接口
+func (p *ProtobufCodec) Decode(r io.Reader, m *Envelope) error {
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
 	protoMessage := &EnvelopeProto{}
-	if err := proto.Unmarshal(data[:n], protoMessage); err != nil {
+	if err := proto.Unmarshal(data, protoMessage); err != nil {
 		return err
 	}
-	m.Version = protoMessage.Version
-	m.Type = protoMessage.Type
-	m.Schema = protoMessage.Schema
-	m.Datacontent = protoMessage.Datacontent
-	m.Mid = protoMessage.Mid
-	m.Correlation = protoMessage.Correlation
-	m.Causation = protoMessage.Causation
-	m.TraceID = protoMessage.TraceId
-	m.Tenant = protoMessage.Tenant
-	m.Conversation = protoMessage.Conversation
-	m.From = protoMessage.From
-	m.To = protoMessage.To
-	m.PartitionKey = protoMessage.PartitionKey
-	m.Ts = protoMessage.Ts
-	m.TTLms = protoMessage.TtlMs
-	m.ExpiresAt = protoMessage.ExpiresAt
-	m.Meta = protoMessage.Meta
-	m.Signature = protoMessage.Signature
-	m.Encrypted = protoMessage.Encrypted
-	m.Priority = int(protoMessage.Priority)
-	m.ChunkIndex = int(protoMessage.ChunkIndex)
-	m.TotalChunks = int(protoMessage.TotalChunks)
-	m.Language = protoMessage.Language
-	m.Status = protoMessage.Status
-	m.Payload = protoMessage.Payload
-	m.Data = protoMessage.Data
-	m.Attributes = protoMessage.Attributes
+	// 将 EnvelopeProto 转换为 Envelope
+	*m = Envelope{
+		Version:      protoMessage.Version,
+		Type:         protoMessage.Type,
+		Schema:       protoMessage.Schema,
+		Datacontent:  protoMessage.Datacontent,
+		Mid:          protoMessage.Mid,
+		Correlation:  protoMessage.Correlation,
+		Causation:    protoMessage.Causation,
+		TraceID:      protoMessage.TraceId,
+		Tenant:       protoMessage.Tenant,
+		Conversation: protoMessage.Conversation,
+		From:         protoMessage.From,
+		To:           protoMessage.To,
+		PartitionKey: protoMessage.PartitionKey,
+		Ts:           protoMessage.Ts,
+		TTLms:        protoMessage.TtlMs,
+		ExpiresAt:    protoMessage.ExpiresAt,
+		Meta:         protoMessage.Meta,
+		Signature:    protoMessage.Signature,
+		Encrypted:    protoMessage.Encrypted,
+		Priority:     int(protoMessage.Priority),
+		ChunkIndex:   int(protoMessage.ChunkIndex),
+		TotalChunks:  int(protoMessage.TotalChunks),
+		Language:     protoMessage.Language,
+		Status:       protoMessage.Status,
+		Payload:      protoMessage.Payload,
+		Data:         protoMessage.Data,
+		Attributes:   protoMessage.Attributes,
+	}
 	return nil
 }
