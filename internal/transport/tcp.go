@@ -17,7 +17,6 @@ import (
 type tcpConn struct {
 	id          string
 	conn        net.Conn
-	codec       *LegacyFrameCodec  // for backward compatibility
 	framedCodec *FramedMessageCodec // new structured approach
 	client      *chat.Client
 	closeOnce   sync.Once
@@ -39,7 +38,7 @@ func (t *tcpConn) RemoteAddr() string {
 	return ""
 }
 func (t *tcpConn) SendEnvelope(m *Envelope) error {
-	return t.codec.Encode(m)
+	return t.framedCodec.Encode(m)
 }
 func (t *tcpConn) Close() error {
 	var err error
@@ -91,13 +90,11 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 	frameCodec := NewFrameCodec(conn)
 	// Create framed message codec that combines framing with message encoding/decoding
 	framedCodec := NewFramedMessageCodec(frameCodec, s.Codec)
-	// For backward compatibility, create legacy frame codec
-	legacyCodec := NewLegacyFrameCodec(frameCodec)
-	
+
 	// chat client for Hub
 	c := chat.NewClientWithBuffer(id, opt.OutBuffer)
 	c.Meta = map[string]string{"level": "0"}
-	sess := &tcpConn{id: id, conn: conn, codec: legacyCodec, client: c, framedCodec: framedCodec}
+	sess := &tcpConn{id: id, conn: conn, client: c, framedCodec: framedCodec}
 	gateway.OnSessionOpen(sess)
 
 	// writer: drain client outgoing to session (wrap plain text into Envelope with typed payload)
@@ -109,7 +106,7 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 			// Use the new structured approach - create envelope and encode it directly
 			payload, _ := json.Marshal(TextPayload{Text: msg})
 			envelope := &Envelope{Type: "text", Payload: payload, Ts: time.Now().UnixMilli()}
-			
+
 			if err := framedCodec.Encode(envelope); err != nil {
 				logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
 				_ = conn.Close()
