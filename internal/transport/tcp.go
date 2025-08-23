@@ -49,13 +49,7 @@ func (t *tcpConn) Close() error {
 	return err
 }
 
-// getClient helper expects Session to be tcpConn or similar wrapper
-func getClient(sess Session) *chat.Client {
-	if ts, ok := sess.(*tcpConn); ok {
-		return ts.client
-	}
-	return nil
-}
+
 
 func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
 	if opt.MaxFrameSize <= 0 {

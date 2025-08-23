@@ -135,6 +135,19 @@ func (g *GatewayHandler) OnSessionClose(sess Session, err error) {
 	}
 }
 
+// getClient retrieves the chat.Client from various Session implementations
+func getClient(sess Session) *chat.Client {
+	// Try TCP session first
+	if ts, ok := sess.(*tcpConn); ok {
+		return ts.client
+	}
+	// Try WebSocket session
+	if ws, ok := sess.(*wsConn); ok {
+		return ws.client
+	}
+	return nil
+}
+
 // ---- Typed payloads and helpers ----
 
 type TextPayload struct {
