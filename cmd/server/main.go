@@ -27,11 +27,11 @@ func main() {
 	subscriber.RegisterAll(hub)
 
 	// 并发启动 TCP/WS/HTTP（静态页 ws.html 用于 WebSocket 测试）
-	// 新抽象：使用协议无关的 Gateway + TCPServer(JSON)
+	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
 	go func() {
-		srv := &transport.TCPServer{Codec: transport.JSONCodec{}}
+		tcpSrv := &transport.TCPServer{Codec: &transport.JSONCodec{}}
 		gw := &transport.GatewayHandler{Hub: hub, Commands: cmdReg}
-		_ = srv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
+		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
 			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
@@ -39,7 +39,13 @@ func main() {
 		})
 	}()
 	go func() {
-		_ = transport.StartWSWithOptions(cfg.WSAddr, hub, cmdReg, transport.Options{OutBuffer: cfg.OutBuffer})
+		wsSrv := &transport.WebSocketServer{Codec: &transport.JSONCodec{}}
+		gw := &transport.GatewayHandler{Hub: hub, Commands: cmdReg}
+		_ = wsSrv.Start(context.Background(), cfg.WSAddr, gw, transport.Options{
+			OutBuffer:    cfg.OutBuffer,
+			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
+			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
+		})
 	}()
 	go func() {
 		_ = observe.StartHTTP(cfg.HTTPAddr)
