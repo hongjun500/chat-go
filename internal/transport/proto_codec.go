@@ -54,8 +54,14 @@ func (p *ProtobufCodec) Encode(w io.Writer, m *Envelope) error {
 
 // 定义统一的 Codec 接口
 // ProtobufCodec 实现 Codec 接口
-func (p *ProtobufCodec) Decode(r io.Reader, m *Envelope) error {
-	data, err := io.ReadAll(r)
+func (p *ProtobufCodec) Decode(r io.Reader, m *Envelope, maxSize int) error {
+	// Apply size limit if specified
+	reader := r
+	if maxSize > 0 {
+		reader = io.LimitReader(r, int64(maxSize))
+	}
+	
+	data, err := io.ReadAll(reader)
 	if err != nil {
 		return err
 	}
