@@ -52,16 +52,20 @@ func (p *ProtobufCodec) Encode(w io.Writer, m *Envelope) error {
 	return err
 }
 
-// 定义统一的 Codec 接口
-// ProtobufCodec 实现 Codec 接口
+// Decode ProtobufCodec 实现 Codec 接口
 func (p *ProtobufCodec) Decode(r io.Reader, m *Envelope, maxSize int) error {
 	// Apply size limit if specified
 	reader := r
 	if maxSize > 0 {
 		reader = io.LimitReader(r, int64(maxSize))
 	}
-	
-	data, err := io.ReadAll(reader)
+	// 不能一次性读取所有数据，采用流式读取
+	buf := make([]byte, maxSize)
+	n, err := reader.Read(buf)
+	if err != nil && err != io.EOF {
+		return err
+	}
+	data := buf[:n]
 	if err != nil {
 		return err
 	}
