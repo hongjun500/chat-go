@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package pb;
+// go_package 确保生成的 Go 代码包路径正确
+option go_package = "internal/protocol/pb;pb";
+
+// Encoding 表示消息负载的编码方式
+enum Encoding {
+  ENCODING_UNSPECIFIED = 0;
+  ENCODING_JSON = 1;
+  ENCODING_PROTOBUF = 2;
+  ENCODING_BINARY = 3; // 保留扩展
+}
+
+// MessageType 表示系统支持的业务消息类型
+enum MessageType {
+  MSG_TYPE_UNSPECIFIED = 0;
+  MSG_TYPE_TEXT = 1;
+  MSG_TYPE_COMMAND = 2;
+  MSG_TYPE_FILE_META = 3;
+  MSG_TYPE_FILE_CHUNK = 4;
+  MSG_TYPE_ACK = 5;
+  MSG_TYPE_PING = 6;
+  MSG_TYPE_PONG = 7;
+}
+
+// Envelope 定义分布式聊天系统的消息协议
+message Envelope {
+  // ---- 协议元信息 ----
+  string version = 1;         // 协议版本
+  MessageType type = 2;       // 消息类型
+  Encoding encoding = 3;      // payload 编码方式
+
+  // ---- 路由与可靠性 ----
+  string message_id = 4;      // 消息唯一ID
+  string correlation_id = 5;  // 相关请求ID
+  string from = 6;            // 发送者
+  string to = 7;              // 接收者
+  int64 timestamp = 8;        // 毫秒时间戳
+
+  // ---- 负载 ----
+  bytes data = 9;   // Protobuf 二进制
+}

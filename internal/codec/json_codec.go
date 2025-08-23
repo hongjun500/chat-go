@@ -13,18 +13,18 @@ type JSONCodec struct{}
 
 func (JSONCodec) ContentType() string { return ApplicationJson }
 
-func (JSONCodec) Encode(w io.Writer, m *protocol.Envelope) error {
+func (JSONCodec) Encode(w io.Writer, e *protocol.Envelope) error {
 	enc := json.NewEncoder(w)
-	return enc.Encode(m)
+	return enc.Encode(e)
 }
 
-// Decode 从 r 中读取 JSON 数据并解码到 m。
+// Decode 从 r 中读取 JSON 数据并解码到 e。
 // 如果 maxSize > 0，则会限制最大读取字节数，防止内存滥用。
-// 解码成功后，会检查业务字段 m.Type 是否存在。
+// 解码成功后，会检查业务字段 e.Type 是否存在。
 // 若检测到 JSON 开头字符不是 '{'，则返回错误。
 // 该函数采用流式解码，适合处理长连接和大数据场景。
-// Decode JSON reads a JSON payload from r and decodes it into m.
-func (JSONCodec) Decode(r io.Reader, m *protocol.Envelope, maxSize int) error {
+// Decode JSON reads a JSON payload from r and decodes it into e.
+func (JSONCodec) Decode(r io.Reader, e *protocol.Envelope, maxSize int) error {
 	// 若指定最大消息大小，则限制读取字节数
 	if maxSize > 0 {
 		r = io.LimitReader(r, int64(maxSize))
@@ -41,11 +41,11 @@ func (JSONCodec) Decode(r io.Reader, m *protocol.Envelope, maxSize int) error {
 	}
 	// 创建 JSON 解码器（基于流式读取，避免一次性加载全部数据）
 	dec := json.NewDecoder(bufReader)
-	if err := dec.Decode(m); err != nil {
+	if err := dec.Decode(e); err != nil {
 		return fmt.Errorf("json decode: %w", err)
 	}
 
-	if m.Type == "" {
+	if e.Type == "" {
 		// Not strictly required, but helps catch malformed inputs
 		return fmt.Errorf("missing field: type")
 	}

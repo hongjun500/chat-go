@@ -1,50 +1,33 @@
 package codec
 
 import (
-	"github.com/hongjun500/chat-go/internal/protocol"
 	"io"
 
+	"github.com/hongjun500/chat-go/internal/protocol"
+	"github.com/hongjun500/chat-go/internal/protocol/pb"
 	"google.golang.org/protobuf/proto"
 )
 
 // ProtobufCodec 将 Envelope 编码为 Protocol Buffers 格式
-// 使用 m.proto 中定义的 EnvelopeProto 消息
 type ProtobufCodec struct{}
 
 func (p *ProtobufCodec) ContentType() string {
 	return ApplicationProtobuf
 }
 
-func (p *ProtobufCodec) Encode(w io.Writer, m *protocol.Envelope) error {
-	protoMessage := &protocol.EnvelopeProto{
-		Version:      m.Version,
-		Type:         m.Type,
-		Schema:       m.Schema,
-		Datacontent:  m.Datacontent,
-		Mid:          m.Mid,
-		Correlation:  m.Correlation,
-		Causation:    m.Causation,
-		TraceId:      m.TraceID,
-		Tenant:       m.Tenant,
-		Conversation: m.Conversation,
-		From:         m.From,
-		To:           m.To,
-		PartitionKey: m.PartitionKey,
-		Ts:           m.Ts,
-		TtlMs:        m.TTLms,
-		ExpiresAt:    m.ExpiresAt,
-		Meta:         m.Meta,
-		Signature:    m.Signature,
-		Encrypted:    m.Encrypted,
-		Priority:     int32(m.Priority),
-		ChunkIndex:   int32(m.ChunkIndex),
-		TotalChunks:  int32(m.TotalChunks),
-		Language:     m.Language,
-		Status:       m.Status,
-		Payload:      m.Payload,
-		Data:         m.Data,
-		Attributes:   m.Attributes,
+func (p *ProtobufCodec) Encode(w io.Writer, e *protocol.Envelope) error {
+	protoMessage := &pb.Envelope{
+		Version:       e.Version,
+		Type:          toPBMsgType(e.Type),
+		Encoding:      toPBEncoding(e.Encoding),
+		MessageId:     e.MessageID,
+		CorrelationId: e.Correlation,
+		From:          e.From,
+		To:            e.To,
+		Timestamp:     e.Timestamp,
+		Data:          e.Data,
 	}
+
 	data, err := proto.Marshal(protoMessage)
 	if err != nil {
 		return err
@@ -54,55 +37,106 @@ func (p *ProtobufCodec) Encode(w io.Writer, m *protocol.Envelope) error {
 }
 
 // Decode ProtobufCodec 实现 Codec 接口
-func (p *ProtobufCodec) Decode(r io.Reader, m *protocol.Envelope, maxSize int) error {
-	// Apply size limit if specified
+func (p *ProtobufCodec) Decode(r io.Reader, e *protocol.Envelope, maxSize int) error {
 	reader := r
 	if maxSize > 0 {
 		reader = io.LimitReader(r, int64(maxSize))
 	}
-	// 不能一次性读取所有数据，采用流式读取
+
 	buf := make([]byte, maxSize)
 	n, err := reader.Read(buf)
 	if err != nil && err != io.EOF {
 		return err
 	}
 	data := buf[:n]
-	if err != nil {
-		return err
-	}
-	protoMessage := &protocol.EnvelopeProto{}
+
+	protoMessage := &pb.Envelope{}
 	if err := proto.Unmarshal(data, protoMessage); err != nil {
 		return err
 	}
-	// 将 EnvelopeProto 转换为 Envelope
-	*m = protocol.Envelope{
-		Version:      protoMessage.Version,
-		Type:         protoMessage.Type,
-		Schema:       protoMessage.Schema,
-		Datacontent:  protoMessage.Datacontent,
-		Mid:          protoMessage.Mid,
-		Correlation:  protoMessage.Correlation,
-		Causation:    protoMessage.Causation,
-		TraceID:      protoMessage.TraceId,
-		Tenant:       protoMessage.Tenant,
-		Conversation: protoMessage.Conversation,
-		From:         protoMessage.From,
-		To:           protoMessage.To,
-		PartitionKey: protoMessage.PartitionKey,
-		Ts:           protoMessage.Ts,
-		TTLms:        protoMessage.TtlMs,
-		ExpiresAt:    protoMessage.ExpiresAt,
-		Meta:         protoMessage.Meta,
-		Signature:    protoMessage.Signature,
-		Encrypted:    protoMessage.Encrypted,
-		Priority:     int(protoMessage.Priority),
-		ChunkIndex:   int(protoMessage.ChunkIndex),
-		TotalChunks:  int(protoMessage.TotalChunks),
-		Language:     protoMessage.Language,
-		Status:       protoMessage.Status,
-		Payload:      protoMessage.Payload,
-		Data:         protoMessage.Data,
-		Attributes:   protoMessage.Attributes,
+
+	// 将 pb.Envelope 转换为 protocol.Envelope
+	result := protocol.Envelope{
+		Version:     protoMessage.GetVersion(),
+		Type:        fromPBMsgType(protoMessage.GetType()),
+		Encoding:    fromPBEncoding(protoMessage.GetEncoding()),
+		MessageID:   protoMessage.GetMessageId(),
+		Correlation: protoMessage.GetCorrelationId(),
+		From:        protoMessage.GetFrom(),
+		To:          protoMessage.GetTo(),
+		Timestamp:   protoMessage.GetTimestamp(),
+		Data:        protoMessage.GetData(),
 	}
+	*e = result
 	return nil
+}
+
+// --- 辅助方法 ---
+
+func toPBEncoding(enc protocol.Encoding) pb.Encoding {
+	switch enc {
+	case protocol.EncodingJSON:
+		return pb.Encoding_ENCODING_JSON
+	case protocol.EncodingProtobuf:
+		return pb.Encoding_ENCODING_PROTOBUF
+	case protocol.EncodingBinary:
+		return pb.Encoding_ENCODING_BINARY
+	default:
+		return pb.Encoding_ENCODING_UNSPECIFIED
+	}
+}
+
+func fromPBEncoding(enc pb.Encoding) protocol.Encoding {
+	switch enc {
+	case pb.Encoding_ENCODING_JSON:
+		return protocol.EncodingJSON
+	case pb.Encoding_ENCODING_PROTOBUF:
+		return protocol.EncodingProtobuf
+	case pb.Encoding_ENCODING_BINARY:
+		return protocol.EncodingBinary
+	default:
+		return ""
+	}
+}
+
+func toPBMsgType(t protocol.MessageType) pb.MessageType {
+	switch t {
+	case protocol.MsgText:
+		return pb.MessageType_MSG_TYPE_TEXT
+	case protocol.MsgCommand:
+		return pb.MessageType_MSG_TYPE_COMMAND
+	case protocol.MsgFileMeta:
+		return pb.MessageType_MSG_TYPE_FILE_META
+	case protocol.MsgFileChunk:
+		return pb.MessageType_MSG_TYPE_FILE_CHUNK
+	case protocol.MsgAck:
+		return pb.MessageType_MSG_TYPE_ACK
+	case protocol.MsgPing:
+		return pb.MessageType_MSG_TYPE_PING
+	case protocol.MsgPong:
+		return pb.MessageType_MSG_TYPE_PONG
+	default:
+		return pb.MessageType_MSG_TYPE_UNSPECIFIED
+	}
+}
+
+func fromPBMsgType(t pb.MessageType) protocol.MessageType {
+	switch t {
+	case pb.MessageType_MSG_TYPE_TEXT:
+		return protocol.MsgText
+	case pb.MessageType_MSG_TYPE_COMMAND:
+		return protocol.MsgCommand
+	case pb.MessageType_MSG_TYPE_FILE_META:
+		return protocol.MsgFileMeta
+	case pb.MessageType_MSG_TYPE_FILE_CHUNK:
+		return protocol.MsgFileChunk
+	case pb.MessageType_MSG_TYPE_ACK:
+		return protocol.MsgAck
+	case pb.MessageType_MSG_TYPE_PING:
+		return protocol.MsgPing
+	case pb.MessageType_MSG_TYPE_PONG:
+		return protocol.MsgPong
+	default:
+		return ""
+	}
 }
