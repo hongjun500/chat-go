@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/hongjun500/chat-go/internal/codec"
 	"time"
 
 	"github.com/hongjun500/chat-go/internal/bus/redisstream"
@@ -29,7 +30,7 @@ func main() {
 	// 并发启动 TCP/WS/HTTP（静态页 ws.html 用于 WebSocket 测试）
 	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
 	go func() {
-		tcpSrv := &transport.TCPServer{Codec: &transport.JSONCodec{}}
+		tcpSrv := &transport.TCPServer{Codec: &codec.JSONCodec{}}
 		gw := &transport.GatewayHandler{Hub: hub, Commands: cmdReg}
 		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
@@ -39,7 +40,7 @@ func main() {
 		})
 	}()
 	go func() {
-		wsSrv := &transport.WebSocketServer{Codec: &transport.JSONCodec{}}
+		wsSrv := &transport.WebSocketServer{Codec: &codec.JSONCodec{}}
 		gw := &transport.GatewayHandler{Hub: hub, Commands: cmdReg}
 		_ = wsSrv.Start(context.Background(), cfg.WSAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,

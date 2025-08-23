@@ -4,7 +4,7 @@
 // 	protoc        v6.32.0
 // source: internal/transport/envelope.proto
 
-package transport
+package protocol
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"

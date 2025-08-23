@@ -1,6 +1,7 @@
-package transport
+package codec
 
 import (
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"io"
 
 	"google.golang.org/protobuf/proto"
@@ -14,8 +15,8 @@ func (p *ProtobufCodec) ContentType() string {
 	return ApplicationProtobuf
 }
 
-func (p *ProtobufCodec) Encode(w io.Writer, m *Envelope) error {
-	protoMessage := &EnvelopeProto{
+func (p *ProtobufCodec) Encode(w io.Writer, m *protocol.Envelope) error {
+	protoMessage := &protocol.EnvelopeProto{
 		Version:      m.Version,
 		Type:         m.Type,
 		Schema:       m.Schema,
@@ -53,7 +54,7 @@ func (p *ProtobufCodec) Encode(w io.Writer, m *Envelope) error {
 }
 
 // Decode ProtobufCodec 实现 Codec 接口
-func (p *ProtobufCodec) Decode(r io.Reader, m *Envelope, maxSize int) error {
+func (p *ProtobufCodec) Decode(r io.Reader, m *protocol.Envelope, maxSize int) error {
 	// Apply size limit if specified
 	reader := r
 	if maxSize > 0 {
@@ -69,12 +70,12 @@ func (p *ProtobufCodec) Decode(r io.Reader, m *Envelope, maxSize int) error {
 	if err != nil {
 		return err
 	}
-	protoMessage := &EnvelopeProto{}
+	protoMessage := &protocol.EnvelopeProto{}
 	if err := proto.Unmarshal(data, protoMessage); err != nil {
 		return err
 	}
 	// 将 EnvelopeProto 转换为 Envelope
-	*m = Envelope{
+	*m = protocol.Envelope{
 		Version:      protoMessage.Version,
 		Type:         protoMessage.Type,
 		Schema:       protoMessage.Schema,

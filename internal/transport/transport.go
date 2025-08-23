@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"github.com/hongjun500/chat-go/internal/protocol"
 )
 
 const (
@@ -13,14 +14,14 @@ const (
 type Session interface {
 	ID() string
 	RemoteAddr() string
-	SendEnvelope(*Envelope) error // 发送消息（封装在 Envelope 结构体中）到客户端
+	SendEnvelope(*protocol.Envelope) error // 发送消息（封装在 Envelope 结构体中）到客户端
 	Close() error
 }
 
 // Gateway consumes high-level Envelope from any Transport
 type Gateway interface {
 	OnSessionOpen(sess Session)
-	OnEnvelope(sess Session, msg *Envelope)
+	OnEnvelope(sess Session, msg *protocol.Envelope)
 	OnSessionClose(sess Session, err error)
 }
 

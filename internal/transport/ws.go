@@ -1,116 +1,247 @@
 package transport
 
 import (
+	"context"
+	"encoding/json"
+	codec2 "github.com/hongjun500/chat-go/internal/codec"
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"net/http"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/hongjun500/chat-go/internal/chat"
-	"github.com/hongjun500/chat-go/internal/command"
 	"github.com/hongjun500/chat-go/pkg/logger"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+// wsConn implements Session for WebSocket connections
+type wsConn struct {
+	id        string
+	conn      *websocket.Conn
+	codec     codec2.MessageCodec
+	client    *chat.Client
+	closeOnce sync.Once
+	closeChan chan struct{}
 }
 
-// StartWSWithRegistry 使用默认选项启动 WebSocket 服务
-func StartWSWithRegistry(addr string, hub *chat.Hub, reg *command.Registry) error {
-	return StartWSWithOptions(addr, hub, reg, Options{OutBuffer: 256})
+// WebSocketServer implements Transport using WebSocket connections
+type WebSocketServer struct {
+	Codec codec2.MessageCodec
+	Path  string // WebSocket endpoint path, defaults to "/ws"
 }
 
-// StartWSWithOptions 启动 WebSocket 服务，支持缓冲区配置
-func StartWSWithOptions(addr string, hub *chat.Hub, reg *command.Registry, opt Options) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		wsHandler(w, r, hub, reg, opt)
+func (w *wsConn) ID() string {
+	return w.id
+}
+
+func (w *wsConn) RemoteAddr() string {
+	return w.conn.RemoteAddr().String()
+}
+
+func (w *wsConn) SendEnvelope(m *protocol.Envelope) error {
+	// For WebSocket, we'll send JSON-encoded envelopes as text messages
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.TextMessage, data)
+}
+
+func (w *wsConn) Close() error {
+	var err error
+	w.closeOnce.Do(func() {
+		err = w.conn.Close()
+		close(w.closeChan)
 	})
-	logger.L().Sugar().Infow("ws_listen", "addr", addr, "path", "/ws")
-	return http.ListenAndServe(addr, mux)
+	return err
 }
 
-func wsHandler(w http.ResponseWriter, r *http.Request, hub *chat.Hub, reg *command.Registry, opt Options) {
+func (ws *WebSocketServer) Name() string {
+	return WebSocket
+}
+
+func (ws *WebSocketServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
+	if ws.Codec == nil {
+		ws.Codec = &codec2.JSONCodec{} // default to JSON
+	}
+	if ws.Path == "" {
+		ws.Path = "/ws"
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(ws.Path, func(w http.ResponseWriter, r *http.Request) {
+		ws.handleConnection(w, r, gateway, opt)
+	})
+
+	logger.L().Sugar().Infow("websocket_listen", "addr", addr, "path", ws.Path)
+
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	// Graceful shutdown
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+
+	return server.ListenAndServe()
+}
+
+func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Request, gateway Gateway, opt Options) {
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	id := uuid.New().String()
 	client := chat.NewClientWithBuffer(id, opt.OutBuffer)
+	client.Meta = map[string]string{"level": "0"}
 
-	// writer: flush outgoing queue to websocket
+	sess := &wsConn{
+		id:        id,
+		conn:      conn,
+		codec:     ws.Codec,
+		client:    client,
+		closeChan: make(chan struct{}),
+	}
+
+	gateway.OnSessionOpen(sess)
+
+	// Writer goroutine: send outgoing messages from client as Envelope
 	go func() {
+		defer func() {
+			gateway.OnSessionClose(sess, nil)
+			_ = sess.Close()
+		}()
+
 		for msg := range client.Outgoing() {
-			if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+			if opt.WriteTimeout > 0 {
+				_ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
+			}
+
+			// Convert plain text message to Envelope
+			payload, _ := json.Marshal(protocol.TextPayload{Text: msg})
+			envelope := &protocol.Envelope{
+				Type:    "text",
+				Payload: payload,
+				Ts:      time.Now().UnixMilli(),
+			}
+
+			if err := sess.SendEnvelope(envelope); err != nil {
 				logger.L().Sugar().Warnw("ws_write_error", "client", client.ID, "err", err)
-				hub.UnregisterClient(client)
 				return
 			}
 		}
-		// ensure ws closed when channel drained
-		_ = conn.Close()
 	}()
 
-	// initial greeting
-	_ = conn.WriteMessage(websocket.TextMessage, []byte("请输入昵称并回车："))
+	// Setup heartbeat
+	if opt.ReadTimeout > 0 {
+		_ = conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout))
+	} else {
+		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	}
 
-	// 心跳设置：读超时 + pong handler
-	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		deadline := time.Now().Add(60 * time.Second)
+		if opt.ReadTimeout > 0 {
+			deadline = time.Now().Add(opt.ReadTimeout)
+		}
+		return conn.SetReadDeadline(deadline)
 	})
-	// 定期发送 ping
+
+	// Periodic ping
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		defer ticker.Stop()
-		for range ticker.C {
-			_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+		for {
+			select {
+			case <-ticker.C:
+				_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+			case <-sess.closeChan:
+				return
+			}
 		}
 	}()
 
-	nameSet := false
+	// Reader loop: read messages and convert to Envelope
 	for {
 		mt, data, err := conn.ReadMessage()
 		if err != nil {
-			hub.UnregisterClient(client)
+			gateway.OnSessionClose(sess, err)
 			return
 		}
+
 		if mt != websocket.TextMessage {
 			continue
 		}
-		line := strings.TrimSpace(string(data))
-		if line == "" {
-			continue
-		}
-		if !nameSet {
-			// 封禁校验
-			if hub.IsBanned(line) {
-				_ = conn.WriteMessage(websocket.TextMessage, []byte("该用户已被封禁"))
-				hub.UnregisterClient(client)
-				return
-			}
-			client.Name = line
-			nameSet = true
-			hub.RegisterClient(client)
-			client.Send("昵称设置成功：" + line)
-			continue
-		}
-		if strings.HasPrefix(line, "/") {
-			handled, err := reg.Execute(line, &command.Context{Hub: hub, Client: client, Raw: line})
-			if handled {
-				if err != nil {
-					client.Send("命令错误: " + err.Error())
-				}
+
+		// Try to parse as Envelope first, fallback to legacy text message
+		var envelope protocol.Envelope
+		if err := json.Unmarshal(data, &envelope); err == nil && envelope.Type != "" {
+			// Structured message - pass directly to gateway
+			gateway.OnEnvelope(sess, &envelope)
+		} else {
+			// Legacy plain text message - convert to appropriate Envelope
+			text := string(data)
+			if text == "" {
 				continue
 			}
+
+			// Handle legacy WebSocket protocol
+			ws.handleLegacyMessage(sess, text, gateway)
 		}
-		hub.BroadcastLocal(client.Name, line)
-		time.Sleep(1 * time.Millisecond)
 	}
+}
+
+// handleLegacyMessage processes plain text WebSocket messages for backward compatibility
+func (ws *WebSocketServer) handleLegacyMessage(sess *wsConn, text string, gateway Gateway) {
+	client := sess.client
+
+	// If no name set, treat as set_name
+	if client.Name == "" {
+		payload, _ := json.Marshal(protocol.SetNamePayload{Name: text})
+		envelope := &protocol.Envelope{
+			Type:    "set_name",
+			Payload: payload,
+			Ts:      time.Now().UnixMilli(),
+		}
+		gateway.OnEnvelope(sess, envelope)
+		return
+	}
+
+	// If starts with /, treat as command
+	if len(text) > 0 && text[0] == '/' {
+		payload, _ := json.Marshal(protocol.CommandPayload{Raw: text})
+		envelope := &protocol.Envelope{
+			Type:    "command",
+			Payload: payload,
+			Ts:      time.Now().UnixMilli(),
+		}
+		gateway.OnEnvelope(sess, envelope)
+		return
+	}
+
+	// Otherwise treat as chat message
+	payload, _ := json.Marshal(protocol.ChatPayload{Content: text})
+	envelope := &protocol.Envelope{
+		Type:    "chat",
+		From:    client.Name,
+		Payload: payload,
+		Ts:      time.Now().UnixMilli(),
+	}
+	gateway.OnEnvelope(sess, envelope)
 }

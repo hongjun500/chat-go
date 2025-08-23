@@ -3,6 +3,8 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"github.com/hongjun500/chat-go/internal/codec"
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"io"
 	"net"
 	"sync"
@@ -25,7 +27,7 @@ type tcpConn struct {
 
 // TCPServer implements Transport using length-prefixed frames and MessageCodec on top
 type TCPServer struct {
-	Codec MessageCodec
+	Codec codec.MessageCodec
 }
 
 func (t *tcpConn) ID() string {
@@ -37,7 +39,7 @@ func (t *tcpConn) RemoteAddr() string {
 	}
 	return ""
 }
-func (t *tcpConn) SendEnvelope(m *Envelope) error {
+func (t *tcpConn) SendEnvelope(m *protocol.Envelope) error {
 	return t.framedCodec.Encode(m)
 }
 func (t *tcpConn) Close() error {
@@ -48,8 +50,6 @@ func (t *tcpConn) Close() error {
 	})
 	return err
 }
-
-
 
 func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
 	if opt.MaxFrameSize <= 0 {
@@ -98,8 +98,8 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 				_ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
 			}
 			// Use the new structured approach - create envelope and encode it directly
-			payload, _ := json.Marshal(TextPayload{Text: msg})
-			envelope := &Envelope{Type: "text", Payload: payload, Ts: time.Now().UnixMilli()}
+			payload, _ := json.Marshal(protocol.TextPayload{Text: msg})
+			envelope := &protocol.Envelope{Type: "text", Payload: payload, Ts: time.Now().UnixMilli()}
 
 			if err := framedCodec.Encode(envelope); err != nil {
 				logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
@@ -116,7 +116,7 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 			_ = conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout))
 		}
 		// Use the new structured approach - decode frame and message in one step
-		var env Envelope
+		var env protocol.Envelope
 		if err := framedCodec.Decode(&env, opt.MaxFrameSize); err != nil {
 			if err != io.EOF {
 				logger.L().Sugar().Warnw("tcp_decode_error", "client", id, "err", err)

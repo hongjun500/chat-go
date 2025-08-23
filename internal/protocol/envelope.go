@@ -1,17 +1,7 @@
-package transport
+package protocol
 
 import (
 	"encoding/json"
-)
-
-// TCPMode indicates the payload format for TCP transport
-type TCPMode string
-
-const (
-	// TCPModeLegacy uses line-based plain text (backward compatible)
-	TCPModeLegacy TCPMode = "legacy"
-	// TCPModeJSON uses length-prefixed JSON frames
-	TCPModeJSON TCPMode = "json"
 )
 
 // Envelope defines a thin, evolvable message header plus a polymorphic payload.
@@ -70,4 +60,32 @@ type Envelope struct {
 	Payload    json.RawMessage   `json:"payload,omitempty"`    // structured payload (JSON)
 	Data       []byte            `json:"data,omitempty"`       // large/binary payload; JSON base64-encoded
 	Attributes map[string]string `json:"attributes,omitempty"` // custom attributes for extensibility
+}
+
+// ---- Typed payloads and helpers ----
+
+type TextPayload struct {
+	Text string `json:"text"`
+}
+type SetNamePayload struct {
+	Name string `json:"name"`
+}
+type ChatPayload struct {
+	Content string `json:"content"`
+}
+type DirectPayload struct {
+	Content string   `json:"content"`
+	To      []string `json:"to"`
+}
+type CommandPayload struct {
+	Raw string `json:"raw"`
+}
+type AckPayload struct {
+	Status string `json:"status"`
+}
+type PingPayload struct {
+	Seq int64 `json:"seq"`
+}
+type PongPayload struct {
+	Seq int64 `json:"seq"`
 }

@@ -1,9 +1,10 @@
-package transport
+package codec
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"io"
 	"strings"
 	"testing"
@@ -18,9 +19,10 @@ func TestJSONCodec_ContentType(t *testing.T) {
 
 func TestJSONCodec_EncodeDecode(t *testing.T) {
 	codec := JSONCodec{}
-	orig := &Envelope{
+	payload, _ := json.Marshal(protocol.ChatPayload{Content: "hello world"})
+	orig := &protocol.Envelope{
 		Type:    "chat",
-		Payload: mustJSON(ChatPayload{Content: "hello world"}),
+		Payload: payload,
 		From:    "user1",
 		To:      []string{"user2"},
 	}
@@ -30,7 +32,7 @@ func TestJSONCodec_EncodeDecode(t *testing.T) {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
-	decoded := &Envelope{}
+	decoded := &protocol.Envelope{}
 	if err := codec.Decode(&buf, decoded, 0); err != nil {
 		t.Fatalf("Decode failed: %v", err)
 	}
@@ -38,7 +40,7 @@ func TestJSONCodec_EncodeDecode(t *testing.T) {
 	if decoded.Type != orig.Type || decoded.From != orig.From {
 		t.Errorf("Decoded header mismatch. Got %+v, want %+v", decoded, orig)
 	}
-	var dp, op ChatPayload
+	var dp, op protocol.ChatPayload
 	if err := json.Unmarshal(decoded.Payload, &dp); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
@@ -56,7 +58,7 @@ func TestJSONCodec_DecodeNotObject(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteString(data)
 
-	decoded := &Envelope{}
+	decoded := &protocol.Envelope{}
 	err := codec.Decode(&buf, decoded, 0)
 	if err == nil {
 		t.Errorf("Expected error for array input, got nil")
@@ -69,7 +71,7 @@ func TestJSONCodec_DecodeMalformedJSON(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteString(data)
 
-	decoded := &Envelope{}
+	decoded := &protocol.Envelope{}
 	err := codec.Decode(&buf, decoded, 0)
 	if err == nil || !strings.Contains(err.Error(), "json decode") {
 		t.Errorf("Expected json decode error, got %v", err)
@@ -82,7 +84,7 @@ func TestJSONCodec_DecodeMissingType(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteString(data)
 
-	decoded := &Envelope{}
+	decoded := &protocol.Envelope{}
 	err := codec.Decode(&buf, decoded, 0)
 	if err == nil || !strings.Contains(err.Error(), "missing field: type") {
 		t.Errorf("Expected missing field error, got %v", err)
@@ -95,7 +97,7 @@ func TestJSONCodec_DecodeMaxSize(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteString(data)
 
-	decoded := &Envelope{}
+	decoded := &protocol.Envelope{}
 	// 设置 maxSize 小于实际长度
 	err := codec.Decode(&buf, decoded, 5)
 	if err == nil || !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "json decode") {
