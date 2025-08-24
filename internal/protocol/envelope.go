@@ -31,11 +31,11 @@ type Envelope struct {
 	Encoding Encoding    `json:"encoding"` // payload 编码方式
 
 	// ---- 路由与可靠性 ----
-	MessageID   string `json:"mid"`            // 消息唯一ID
+	Mid         string `json:"mid"`            // 消息唯一ID
 	Correlation string `json:"correlation_id"` // 相关请求ID
 	From        string `json:"from,omitempty"`
 	To          string `json:"to,omitempty"`
-	Timestamp   int64  `json:"ts"` // 毫秒时间戳
+	Ts          int64  `json:"ts"` // 毫秒时间戳
 
 	// ---- 负载 ----
 	// 规则：

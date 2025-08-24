@@ -20,11 +20,11 @@ func (p *ProtobufCodec) Encode(w io.Writer, e *protocol.Envelope) error {
 		Version:       e.Version,
 		Type:          toPBMsgType(e.Type),
 		Encoding:      toPBEncoding(e.Encoding),
-		MessageId:     e.MessageID,
+		MessageId:     e.Mid,
 		CorrelationId: e.Correlation,
 		From:          e.From,
 		To:            e.To,
-		Timestamp:     e.Timestamp,
+		Timestamp:     e.Ts,
 		Data:          e.Data,
 	}
 
@@ -60,11 +60,11 @@ func (p *ProtobufCodec) Decode(r io.Reader, e *protocol.Envelope, maxSize int) e
 		Version:     protoMessage.GetVersion(),
 		Type:        fromPBMsgType(protoMessage.GetType()),
 		Encoding:    fromPBEncoding(protoMessage.GetEncoding()),
-		MessageID:   protoMessage.GetMessageId(),
+		Mid:         protoMessage.GetMessageId(),
 		Correlation: protoMessage.GetCorrelationId(),
 		From:        protoMessage.GetFrom(),
 		To:          protoMessage.GetTo(),
-		Timestamp:   protoMessage.GetTimestamp(),
+		Ts:          protoMessage.GetTimestamp(),
 		Data:        protoMessage.GetData(),
 	}
 	*e = result

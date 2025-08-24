@@ -12,7 +12,8 @@ type Config struct {
 	HTTPAddr  string
 	LogLevel  string
 	// TCP advanced
-	TCPMode      string // legacy|json
+	TCPCodec     string // json|protobuf
+	WSCodec      string // json|protobuf
 	ReadTimeout  int    // seconds
 	WriteTimeout int    // seconds
 	MaxFrameSize int    // bytes
@@ -41,7 +42,8 @@ func Load() *Config {
 	wsAddr := getEnv("CHAT_WS_ADDR", ":8081")
 	httpAddr := getEnv("CHAT_HTTP_ADDR", ":8082")
 	logLevel := getEnv("CHAT_LOG_LEVEL", "info")
-	tcpMode := getEnv("CHAT_TCP_MODE", "json")
+	tcpCodec := getEnv("CHAT_TCP_CODEC", "json")
+	wsCodec := getEnv("CHAT_WS_CODEC", "json")
 	rtStr := getEnv("CHAT_TCP_READ_TIMEOUT", "60")
 	wtStr := getEnv("CHAT_TCP_WRITE_TIMEOUT", "15")
 	mfsStr := getEnv("CHAT_TCP_MAX_FRAME", "1048576")
@@ -61,7 +63,8 @@ func Load() *Config {
 		WSAddr:       wsAddr,
 		HTTPAddr:     httpAddr,
 		LogLevel:     logLevel,
-		TCPMode:      tcpMode,
+		TCPCodec:     tcpCodec,
+		WSCodec:      wsCodec,
 		ReadTimeout:  rt,
 		WriteTimeout: wt,
 		MaxFrameSize: mfs,
