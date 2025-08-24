@@ -17,18 +17,20 @@ import (
 
 // wsConn implements Session for WebSocket connections
 type wsConn struct {
-	id        string
-	conn      *websocket.Conn
-	codec     codec2.MessageCodec
-	client    *chat.Client
-	closeOnce sync.Once
-	closeChan chan struct{}
+	id             string
+	conn           *websocket.Conn
+	codec          codec2.MessageCodec
+	client         *chat.Client
+	closeOnce      sync.Once
+	closeChan      chan struct{}
+	payloadEncoder *protocol.PayloadEncoder
 }
 
 // WebSocketServer implements Transport using WebSocket connections
 type WebSocketServer struct {
-	Codec codec2.MessageCodec
-	Path  string // WebSocket endpoint path, defaults to "/ws"
+	Codec          codec2.MessageCodec
+	Path           string // WebSocket endpoint path, defaults to "/ws"
+	PayloadEncoder *protocol.PayloadEncoder
 }
 
 func (w *wsConn) ID() string {
@@ -41,6 +43,7 @@ func (w *wsConn) RemoteAddr() string {
 
 func (w *wsConn) SendEnvelope(m *protocol.Envelope) error {
 	// For WebSocket, we'll send JSON-encoded envelopes as text messages
+	// We need to use the standard JSON marshal since we're marshaling the whole envelope
 	data, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -67,6 +70,9 @@ func (ws *WebSocketServer) Start(ctx context.Context, addr string, gateway Gatew
 	}
 	if ws.Path == "" {
 		ws.Path = "/ws"
+	}
+	if ws.PayloadEncoder == nil {
+		ws.PayloadEncoder = protocol.DefaultPayloadEncoder
 	}
 
 	mux := http.NewServeMux()
@@ -112,11 +118,12 @@ func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Reque
 	client.Meta = map[string]string{"level": "0"}
 
 	sess := &wsConn{
-		id:        id,
-		conn:      conn,
-		codec:     ws.Codec,
-		client:    client,
-		closeChan: make(chan struct{}),
+		id:             id,
+		conn:           conn,
+		codec:          ws.Codec,
+		client:         client,
+		closeChan:      make(chan struct{}),
+		payloadEncoder: ws.PayloadEncoder,
 	}
 
 	gateway.OnSessionOpen(sess)
@@ -133,13 +140,9 @@ func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Reque
 				_ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
 			}
 
-			// Convert plain text message to Envelope
-			payload, _ := json.Marshal(protocol.TextPayload{Text: msg})
-			envelope := &protocol.Envelope{
-				Type:    "text",
-				Payload: payload,
-				Ts:      time.Now().UnixMilli(),
-			}
+			// Convert plain text message to Envelope using payload encoder
+			envelope, _ := sess.payloadEncoder.EncodeText(msg)
+			envelope.Ts = time.Now().UnixMilli()
 
 			if err := sess.SendEnvelope(envelope); err != nil {
 				logger.L().Sugar().Warnw("ws_write_error", "client", client.ID, "err", err)
@@ -213,35 +216,23 @@ func (ws *WebSocketServer) handleLegacyMessage(sess *wsConn, text string, gatewa
 
 	// If no name set, treat as set_name
 	if client.Name == "" {
-		payload, _ := json.Marshal(protocol.SetNamePayload{Name: text})
-		envelope := &protocol.Envelope{
-			Type:    "set_name",
-			Payload: payload,
-			Ts:      time.Now().UnixMilli(),
-		}
+		envelope, _ := sess.payloadEncoder.EncodeSetName(text)
+		envelope.Ts = time.Now().UnixMilli()
 		gateway.OnEnvelope(sess, envelope)
 		return
 	}
 
 	// If starts with /, treat as command
 	if len(text) > 0 && text[0] == '/' {
-		payload, _ := json.Marshal(protocol.CommandPayload{Raw: text})
-		envelope := &protocol.Envelope{
-			Type:    "command",
-			Payload: payload,
-			Ts:      time.Now().UnixMilli(),
-		}
+		envelope, _ := sess.payloadEncoder.EncodeCommand(text)
+		envelope.Ts = time.Now().UnixMilli()
 		gateway.OnEnvelope(sess, envelope)
 		return
 	}
 
 	// Otherwise treat as chat message
-	payload, _ := json.Marshal(protocol.ChatPayload{Content: text})
-	envelope := &protocol.Envelope{
-		Type:    "chat",
-		From:    client.Name,
-		Payload: payload,
-		Ts:      time.Now().UnixMilli(),
-	}
+	envelope, _ := sess.payloadEncoder.EncodeChat(text)
+	envelope.From = client.Name
+	envelope.Ts = time.Now().UnixMilli()
 	gateway.OnEnvelope(sess, envelope)
 }

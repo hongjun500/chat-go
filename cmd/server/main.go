@@ -48,7 +48,7 @@ func main() {
 	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
 	go func() {
 		tcpSrv := &transport.TCPServer{Codec: tcpCodec}
-		gw := &transport.GatewayHandler{Hub: hub, Commands: cmdReg}
+		gw := transport.NewGatewayHandler(hub, cmdReg)
 		logger.L().Sugar().Infow("starting_tcp_server", "addr", cfg.TCPAddr, "codec", cfg.TCPCodec)
 		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
@@ -59,7 +59,7 @@ func main() {
 	}()
 	go func() {
 		wsSrv := &transport.WebSocketServer{Codec: wsCodec}
-		gw := &transport.GatewayHandler{Hub: hub, Commands: cmdReg}
+		gw := transport.NewGatewayHandler(hub, cmdReg)
 		logger.L().Sugar().Infow("starting_ws_server", "addr", cfg.WSAddr, "codec", cfg.WSCodec)
 		_ = wsSrv.Start(context.Background(), cfg.WSAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
