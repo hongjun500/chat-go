@@ -1,25 +1,38 @@
 package transport
 
 import (
-	"encoding/json"
-	"github.com/hongjun500/chat-go/internal/protocol"
 	"strings"
 	"time"
 
 	"github.com/hongjun500/chat-go/internal/chat"
 	"github.com/hongjun500/chat-go/internal/command"
+	"github.com/hongjun500/chat-go/internal/protocol"
 )
 
 // GatewayHandler hosts auth/nickname, commands and chat routing in a protocol-agnostic way
 type GatewayHandler struct {
-	Hub      *chat.Hub
-	Commands *command.Registry
+	Hub           *chat.Hub
+	Commands      *command.Registry
+	PayloadDecoder *protocol.PayloadDecoder
+	PayloadEncoder *protocol.PayloadEncoder
+}
+
+// NewGatewayHandler creates a new gateway handler with default payload codec
+func NewGatewayHandler(hub *chat.Hub, commands *command.Registry) *GatewayHandler {
+	codec := protocol.NewPayloadCodec()
+	return &GatewayHandler{
+		Hub:           hub,
+		Commands:      commands,
+		PayloadDecoder: protocol.NewPayloadDecoder(codec),
+		PayloadEncoder: protocol.NewPayloadEncoder(codec),
+	}
 }
 
 func (g *GatewayHandler) OnSessionOpen(sess Session) {
 	// 提示信息通过 text 类型的 payload 传递
-	payload, _ := json.Marshal(protocol.TextPayload{Text: "请输入昵称并回车："})
-	_ = sess.SendEnvelope(&protocol.Envelope{Type: "text", Payload: payload, Ts: time.Now().UnixMilli()})
+	envelope, _ := g.PayloadEncoder.EncodeText("请输入昵称并回车：")
+	envelope.Ts = time.Now().UnixMilli()
+	_ = sess.SendEnvelope(envelope)
 }
 
 func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
@@ -30,77 +43,116 @@ func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
 		// 如果还未设置昵称，则把 text 作为昵称；否则作为普通聊天消息
 		c := getClient(sess)
 		if c.Name == "" {
-			var p protocol.TextPayload
-			if err := json.Unmarshal(m.Payload, &p); err != nil {
-				_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "bad_payload"}), Ts: ts})
+			p, err := g.PayloadDecoder.DecodeText(m)
+			if err != nil {
+				ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
+				ackEnv.Mid = m.Mid
+				ackEnv.Ts = ts
+				_ = sess.SendEnvelope(ackEnv)
 				return
 			}
 			name := strings.TrimSpace(p.Text)
 			if name == "" {
-				_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "invalid_name"}), Ts: ts})
+				ackEnv, _ := g.PayloadEncoder.EncodeAck("invalid_name")
+				ackEnv.Mid = m.Mid
+				ackEnv.Ts = ts
+				_ = sess.SendEnvelope(ackEnv)
 				return
 			}
 			if g.Hub.IsBanned(name) {
-				_ = sess.SendEnvelope(&protocol.Envelope{Type: "text", Payload: mustJSON(protocol.TextPayload{Text: "该用户已被封禁"}), Ts: ts})
+				textEnv, _ := g.PayloadEncoder.EncodeText("该用户已被封禁")
+				textEnv.Ts = ts
+				_ = sess.SendEnvelope(textEnv)
 				g.Hub.UnregisterClient(c)
 				return
 			}
 			c.Name = name
 			g.Hub.RegisterClient(c)
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "text", Payload: mustJSON(protocol.TextPayload{Text: "昵称设置成功：" + c.Name}), Ts: ts})
+			textEnv, _ := g.PayloadEncoder.EncodeText("昵称设置成功：" + c.Name)
+			textEnv.Ts = ts
+			_ = sess.SendEnvelope(textEnv)
 			return
 		}
-		var p protocol.TextPayload
-		if err := json.Unmarshal(m.Payload, &p); err != nil {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "bad_payload"}), Ts: ts})
+		p, err := g.PayloadDecoder.DecodeText(m)
+		if err != nil {
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
 		g.Hub.BroadcastLocal(c.Name, p.Text)
 	case "set_name":
 		c := getClient(sess)
 		if c.Name != "" {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "already_named"}), Ts: ts})
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("already_named")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
-		var p protocol.SetNamePayload
-		if err := json.Unmarshal(m.Payload, &p); err != nil {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "bad_payload"}), Ts: ts})
+		p, err := g.PayloadDecoder.DecodeSetName(m)
+		if err != nil {
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
 		name := strings.TrimSpace(p.Name)
 		if name == "" {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "invalid_name"}), Ts: ts})
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("invalid_name")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
 		if g.Hub.IsBanned(name) {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "text", Payload: mustJSON(protocol.TextPayload{Text: "该用户已被封禁"}), Ts: ts})
+			textEnv, _ := g.PayloadEncoder.EncodeText("该用户已被封禁")
+			textEnv.Ts = ts
+			_ = sess.SendEnvelope(textEnv)
 			g.Hub.UnregisterClient(c)
 			return
 		}
 		c.Name = name
 		g.Hub.RegisterClient(c)
-		_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "ok"}), Ts: ts})
+		ackEnv, _ := g.PayloadEncoder.EncodeAck("ok")
+		ackEnv.Mid = m.Mid
+		ackEnv.Ts = ts
+		_ = sess.SendEnvelope(ackEnv)
 	case "chat":
 		c := getClient(sess)
 		if c.Name == "" {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "unauthorized"}), Ts: ts})
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("unauthorized")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
-		var p protocol.ChatPayload
-		if err := json.Unmarshal(m.Payload, &p); err != nil {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "bad_payload"}), Ts: ts})
+		p, err := g.PayloadDecoder.DecodeChat(m)
+		if err != nil {
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
 		g.Hub.BroadcastLocal(c.Name, p.Content)
 	case "direct":
 		c := getClient(sess)
 		if c.Name == "" {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "unauthorized"}), Ts: ts})
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("unauthorized")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
-		var p protocol.DirectPayload
-		if err := json.Unmarshal(m.Payload, &p); err != nil {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "bad_payload"}), Ts: ts})
+		p, err := g.PayloadDecoder.DecodeDirect(m)
+		if err != nil {
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
 		// 保持现有 Direct 事件
@@ -111,21 +163,30 @@ func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
 		g.Hub.Emit(&chat.DirectMessageEvent{When: time.Now(), From: c.Name, To: to, Content: p.Content})
 	case "command":
 		c := getClient(sess)
-		var p protocol.CommandPayload
-		if err := json.Unmarshal(m.Payload, &p); err != nil {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "bad_payload"}), Ts: ts})
+		p, err := g.PayloadDecoder.DecodeCommand(m)
+		if err != nil {
+			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
+			ackEnv.Mid = m.Mid
+			ackEnv.Ts = ts
+			_ = sess.SendEnvelope(ackEnv)
 			return
 		}
 		handled, err := g.Commands.Execute(p.Raw, &command.Context{Hub: g.Hub, Client: c, Raw: p.Raw})
 		if handled && err != nil {
-			_ = sess.SendEnvelope(&protocol.Envelope{Type: "text", Payload: mustJSON(protocol.TextPayload{Text: "命令错误: " + err.Error()}), Ts: ts})
+			textEnv, _ := g.PayloadEncoder.EncodeText("命令错误: " + err.Error())
+			textEnv.Ts = ts
+			_ = sess.SendEnvelope(textEnv)
 		}
 	case "ping":
-		var p protocol.PingPayload
-		_ = json.Unmarshal(m.Payload, &p)
-		_ = sess.SendEnvelope(&protocol.Envelope{Type: "pong", Payload: mustJSON(protocol.PongPayload{Seq: p.Seq}), Ts: ts})
+		p, _ := g.PayloadDecoder.DecodePing(m)
+		pongEnv, _ := g.PayloadEncoder.EncodePong(p.Seq)
+		pongEnv.Ts = ts
+		_ = sess.SendEnvelope(pongEnv)
 	default:
-		_ = sess.SendEnvelope(&protocol.Envelope{Type: "ack", Mid: m.Mid, Payload: mustJSON(protocol.AckPayload{Status: "unknown_type"}), Ts: ts})
+		ackEnv, _ := g.PayloadEncoder.EncodeAck("unknown_type")
+		ackEnv.Mid = m.Mid
+		ackEnv.Ts = ts
+		_ = sess.SendEnvelope(ackEnv)
 	}
 }
 
@@ -147,9 +208,4 @@ func getClient(sess Session) *chat.Client {
 		return ws.client
 	}
 	return nil
-}
-
-func mustJSON(v any) []byte {
-	b, _ := json.Marshal(v)
-	return b
 }

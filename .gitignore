@@ -1,2 +1,8 @@
 .gitignore
 .idea
+# Build artifacts and temporary files
+client
+server
+chat-client
+chat-server
+*.exe
