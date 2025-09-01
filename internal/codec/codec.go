@@ -9,7 +9,15 @@ import (
 const (
 	ApplicationJson     = "application/json"
 	ApplicationProtobuf = "application/x-protobuf"
+
+	JsonCodecType     = "json"
+	ProtobufCodecType = "protobuf"
 )
+
+var codecFactories = map[string]func() MessageCodec{
+	JsonCodecType:     func() MessageCodec { return &JSONCodec{} },
+	ProtobufCodecType: func() MessageCodec { return &ProtobufCodec{} },
+}
 
 type ContentType string
 
@@ -22,12 +30,8 @@ type MessageCodec interface {
 
 // NewCodec 根据编码类型创建相应的编解码器
 func NewCodec(codecType string) (MessageCodec, error) {
-	switch codecType {
-	case "json":
-		return &JSONCodec{}, nil
-	case "protobuf":
-		return &ProtobufCodec{}, nil
-	default:
-		return nil, fmt.Errorf("unsupported codec type: %s", codecType)
+	if factory, ok := codecFactories[codecType]; ok {
+		return factory(), nil
 	}
+	return nil, fmt.Errorf("unsupported codec type: %s", codecType)
 }

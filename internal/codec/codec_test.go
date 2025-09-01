@@ -1,4 +1,4 @@
-package transport
+package codec
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hongjun500/chat-go/internal/codec"
 	"github.com/hongjun500/chat-go/internal/protocol"
 )
 
@@ -19,15 +18,15 @@ func TestCodecInteroperability(t *testing.T) {
 		Encoding: protocol.EncodingJSON,
 		Mid:      "test-msg-001",
 		From:     "alice",
-		To:       "bob", 
+		To:       "bob",
 		Ts:       time.Now().UnixMilli(),
 		Payload:  json.RawMessage(`{"text":"Hello World"}`),
 	}
 
 	// 测试 JSON 编解码
 	t.Run("JSON Codec", func(t *testing.T) {
-		jsonCodec := &codec.JSONCodec{}
-		
+		jsonCodec := &JSONCodec{}
+
 		// 编码
 		var buf bytes.Buffer
 		if err := jsonCodec.Encode(&buf, envelope); err != nil {
@@ -54,8 +53,8 @@ func TestCodecInteroperability(t *testing.T) {
 
 	// 测试 Protobuf 编解码
 	t.Run("Protobuf Codec", func(t *testing.T) {
-		protoCodec := &codec.ProtobufCodec{}
-		
+		protoCodec := &ProtobufCodec{}
+
 		// 修改消息为 Protobuf 格式
 		protoEnvelope := &protocol.Envelope{
 			Version:  "1.0",
@@ -96,10 +95,10 @@ func TestCodecInteroperability(t *testing.T) {
 // TestCodecFactory 测试编解码器工厂函数
 func TestCodecFactory(t *testing.T) {
 	tests := []struct {
-		name        string
-		codecType   string
-		wantError   bool
-		wantType    string
+		name      string
+		codecType string
+		wantError bool
+		wantType  string
 	}{
 		{"JSON Codec", "json", false, "application/json"},
 		{"Protobuf Codec", "protobuf", false, "application/x-protobuf"},
@@ -108,8 +107,8 @@ func TestCodecFactory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			codec, err := codec.NewCodec(tt.codecType)
-			
+			codec, err := NewCodec(tt.codecType)
+
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("Expected error for codec type %s, but got none", tt.codecType)
@@ -131,7 +130,7 @@ func TestCodecFactory(t *testing.T) {
 
 // TestPayloadTypes 测试各种负载类型的序列化
 func TestPayloadTypes(t *testing.T) {
-	jsonCodec := &codec.JSONCodec{}
+	jsonCodec := &JSONCodec{}
 
 	tests := []struct {
 		name    string
