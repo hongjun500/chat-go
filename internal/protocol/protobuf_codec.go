@@ -1,9 +1,8 @@
-package codec
+package protocol
 
 import (
 	"io"
 
-	"github.com/hongjun500/chat-go/internal/protocol"
 	"github.com/hongjun500/chat-go/internal/protocol/pb"
 	"google.golang.org/protobuf/proto"
 )
@@ -11,11 +10,11 @@ import (
 // ProtobufCodec 将 Envelope 编码为 Protocol Buffers 格式
 type ProtobufCodec struct{}
 
-func (p *ProtobufCodec) ContentType() string {
-	return ApplicationProtobuf
+func (p *ProtobufCodec) Name() string {
+	return Protobuf
 }
 
-func (p *ProtobufCodec) Encode(w io.Writer, e *protocol.Envelope) error {
+func (p *ProtobufCodec) Encode(w io.Writer, e *Envelope) error {
 	protoMessage := &pb.Envelope{
 		Version:       e.Version,
 		Type:          toPBMsgType(e.Type),
@@ -37,7 +36,7 @@ func (p *ProtobufCodec) Encode(w io.Writer, e *protocol.Envelope) error {
 }
 
 // Decode ProtobufCodec 实现 Codec 接口
-func (p *ProtobufCodec) Decode(r io.Reader, e *protocol.Envelope, maxSize int) error {
+func (p *ProtobufCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
 	reader := r
 	if maxSize > 0 {
 		reader = io.LimitReader(r, int64(maxSize))
@@ -56,7 +55,7 @@ func (p *ProtobufCodec) Decode(r io.Reader, e *protocol.Envelope, maxSize int) e
 	}
 
 	// 将 pb.Envelope 转换为 protocol.Envelope
-	result := protocol.Envelope{
+	result := Envelope{
 		Version:     protoMessage.GetVersion(),
 		Type:        fromPBMsgType(protoMessage.GetType()),
 		Encoding:    fromPBEncoding(protoMessage.GetEncoding()),
@@ -73,69 +72,65 @@ func (p *ProtobufCodec) Decode(r io.Reader, e *protocol.Envelope, maxSize int) e
 
 // --- 辅助方法 ---
 
-func toPBEncoding(enc protocol.Encoding) pb.Encoding {
+func toPBEncoding(enc Encoding) pb.Encoding {
 	switch enc {
-	case protocol.EncodingJSON:
+	case EncodingJSON:
 		return pb.Encoding_ENCODING_JSON
-	case protocol.EncodingProtobuf:
+	case EncodingProtobuf:
 		return pb.Encoding_ENCODING_PROTOBUF
-	case protocol.EncodingBinary:
-		return pb.Encoding_ENCODING_BINARY
 	default:
 		return pb.Encoding_ENCODING_UNSPECIFIED
 	}
 }
 
-func fromPBEncoding(enc pb.Encoding) protocol.Encoding {
+func fromPBEncoding(enc pb.Encoding) Encoding {
 	switch enc {
 	case pb.Encoding_ENCODING_JSON:
-		return protocol.EncodingJSON
+		return EncodingJSON
 	case pb.Encoding_ENCODING_PROTOBUF:
-		return protocol.EncodingProtobuf
-	case pb.Encoding_ENCODING_BINARY:
-		return protocol.EncodingBinary
+		return EncodingProtobuf
 	default:
 		return ""
 	}
 }
 
-func toPBMsgType(t protocol.MessageType) pb.MessageType {
+func toPBMsgType(t MessageType) pb.MessageType {
 	switch t {
-	case protocol.MsgText:
+	case MsgText:
 		return pb.MessageType_MSG_TYPE_TEXT
-	case protocol.MsgCommand:
+	case MsgCommand:
 		return pb.MessageType_MSG_TYPE_COMMAND
-	case protocol.MsgFileMeta:
+	case MsgFileMeta:
 		return pb.MessageType_MSG_TYPE_FILE_META
-	case protocol.MsgFileChunk:
+	case MsgFileChunk:
 		return pb.MessageType_MSG_TYPE_FILE_CHUNK
-	case protocol.MsgAck:
+	case MsgAck:
 		return pb.MessageType_MSG_TYPE_ACK
-	case protocol.MsgPing:
+	case MsgPing:
 		return pb.MessageType_MSG_TYPE_PING
-	case protocol.MsgPong:
+	case MsgPong:
 		return pb.MessageType_MSG_TYPE_PONG
 	default:
 		return pb.MessageType_MSG_TYPE_UNSPECIFIED
 	}
 }
 
-func fromPBMsgType(t pb.MessageType) protocol.MessageType {
+func fromPBMsgType(t pb.MessageType) MessageType {
 	switch t {
 	case pb.MessageType_MSG_TYPE_TEXT:
-		return protocol.MsgText
+		return MsgText
 	case pb.MessageType_MSG_TYPE_COMMAND:
-		return protocol.MsgCommand
+		return MsgCommand
 	case pb.MessageType_MSG_TYPE_FILE_META:
-		return protocol.MsgFileMeta
+		return MsgFileMeta
 	case pb.MessageType_MSG_TYPE_FILE_CHUNK:
-		return protocol.MsgFileChunk
+		return MsgFileChunk
 	case pb.MessageType_MSG_TYPE_ACK:
-		return protocol.MsgAck
+		return MsgAck
 	case pb.MessageType_MSG_TYPE_PING:
-		return protocol.MsgPing
+		return MsgPing
 	case pb.MessageType_MSG_TYPE_PONG:
-		return protocol.MsgPong
+		return MsgPong
 	default:
 		return ""
 	}

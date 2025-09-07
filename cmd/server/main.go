@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"github.com/hongjun500/chat-go/internal/codec"
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"time"
 
 	"github.com/hongjun500/chat-go/internal/bus/redisstream"
@@ -28,21 +28,21 @@ func main() {
 	subscriber.RegisterAll(hub)
 
 	// 创建编解码器
-	tcpCodec, err := codec.NewCodec(cfg.TCPCodec)
+	tcpCodec, err := protocol.NewCodec(cfg.TCPCodec)
 	if err != nil {
 		logger.L().Sugar().Fatalw("failed_to_create_tcp_codec", "codec", cfg.TCPCodec, "err", err)
 	}
-	
-	wsCodec, err := codec.NewCodec(cfg.WSCodec)
+
+	wsCodec, err := protocol.NewCodec(cfg.WSCodec)
 	if err != nil {
 		logger.L().Sugar().Fatalw("failed_to_create_ws_codec", "codec", cfg.WSCodec, "err", err)
 	}
 
-	logger.L().Sugar().Infow("codec_configuration", 
-		"tcp_codec", cfg.TCPCodec, 
+	logger.L().Sugar().Infow("codec_configuration",
+		"tcp_codec", cfg.TCPCodec,
 		"ws_codec", cfg.WSCodec,
-		"tcp_content_type", tcpCodec.ContentType(),
-		"ws_content_type", wsCodec.ContentType())
+		"tcp_codec_name", tcpCodec.Name(),
+		"ws_codec_name", wsCodec.Name())
 
 	// 并发启动 TCP/WS/HTTP（静态页 ws.html 用于 WebSocket 测试）
 	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
