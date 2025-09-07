@@ -1,9 +1,8 @@
 package transport
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
-	codec2 "github.com/hongjun500/chat-go/internal/codec"
 	"github.com/hongjun500/chat-go/internal/protocol"
 	"net/http"
 	"sync"
@@ -19,7 +18,7 @@ import (
 type wsConn struct {
 	id             string
 	conn           *websocket.Conn
-	codec          codec2.MessageCodec
+	codec          protocol.MessageCodec
 	client         *chat.Client
 	closeOnce      sync.Once
 	closeChan      chan struct{}
@@ -28,9 +27,8 @@ type wsConn struct {
 
 // WebSocketServer implements Transport using WebSocket connections
 type WebSocketServer struct {
-	Codec          codec2.MessageCodec
-	Path           string // WebSocket endpoint path, defaults to "/ws"
-	PayloadEncoder *protocol.PayloadEncoder
+	Codec protocol.MessageCodec
+	Path  string // WebSocket endpoint path, defaults to "/ws"
 }
 
 func (w *wsConn) ID() string {
@@ -42,13 +40,11 @@ func (w *wsConn) RemoteAddr() string {
 }
 
 func (w *wsConn) SendEnvelope(m *protocol.Envelope) error {
-	// For WebSocket, we'll send JSON-encoded envelopes as text messages
-	// We need to use the standard JSON marshal since we're marshaling the whole envelope
-	data, err := json.Marshal(m)
-	if err != nil {
+	var buffer bytes.Buffer
+	if err := w.codec.Encode(&buffer, m); err != nil {
 		return err
 	}
-	return w.conn.WriteMessage(websocket.TextMessage, data)
+	return w.conn.WriteMessage(websocket.TextMessage, buffer.Bytes())
 }
 
 func (w *wsConn) Close() error {
@@ -66,15 +62,11 @@ func (ws *WebSocketServer) Name() string {
 
 func (ws *WebSocketServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
 	if ws.Codec == nil {
-		ws.Codec = &codec2.JSONCodec{} // default to JSON
+		ws.Codec = &protocol.JSONCodec{} // default to JSON
 	}
 	if ws.Path == "" {
 		ws.Path = "/ws"
 	}
-	if ws.PayloadEncoder == nil {
-		ws.PayloadEncoder = protocol.DefaultPayloadEncoder
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc(ws.Path, func(w http.ResponseWriter, r *http.Request) {
 		ws.handleConnection(w, r, gateway, opt)
@@ -118,12 +110,11 @@ func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Reque
 	client.Meta = map[string]string{"level": "0"}
 
 	sess := &wsConn{
-		id:             id,
-		conn:           conn,
-		codec:          ws.Codec,
-		client:         client,
-		closeChan:      make(chan struct{}),
-		payloadEncoder: ws.PayloadEncoder,
+		id:        id,
+		conn:      conn,
+		codec:     ws.Codec,
+		client:    client,
+		closeChan: make(chan struct{}),
 	}
 
 	gateway.OnSessionOpen(sess)
@@ -194,17 +185,13 @@ func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Reque
 
 		// Try to parse as Envelope first, fallback to legacy text message
 		var envelope protocol.Envelope
-		if err := json.Unmarshal(data, &envelope); err == nil && envelope.Type != "" {
-			// Structured message - pass directly to gateway
+		if err := ws.Codec.Decode(bytes.NewBuffer(data), &envelope, opt.MaxFrameSize); err == nil && envelope.Type != "" {
 			gateway.OnEnvelope(sess, &envelope)
 		} else {
-			// Legacy plain text message - convert to appropriate Envelope
 			text := string(data)
 			if text == "" {
 				continue
 			}
-
-			// Handle legacy WebSocket protocol
 			ws.handleLegacyMessage(sess, text, gateway)
 		}
 	}

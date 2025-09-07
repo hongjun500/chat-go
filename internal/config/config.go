@@ -12,11 +12,11 @@ type Config struct {
 	HTTPAddr  string
 	LogLevel  string
 	// TCP advanced
-	TCPCodec     string // json|protobuf
-	WSCodec      string // json|protobuf
-	ReadTimeout  int    // seconds
-	WriteTimeout int    // seconds
-	MaxFrameSize int    // bytes
+	TCPCodec     int // 0:json| 1:protobuf
+	WSCodec      int // 0:json| 1:protobuf
+	ReadTimeout  int // seconds
+	WriteTimeout int // seconds
+	MaxFrameSize int // bytes
 	// Redis Stream
 	RedisAddr   string
 	RedisDB     int
@@ -42,8 +42,8 @@ func Load() *Config {
 	wsAddr := getEnv("CHAT_WS_ADDR", ":8081")
 	httpAddr := getEnv("CHAT_HTTP_ADDR", ":8082")
 	logLevel := getEnv("CHAT_LOG_LEVEL", "info")
-	tcpCodec := getEnv("CHAT_TCP_CODEC", "json")
-	wsCodec := getEnv("CHAT_WS_CODEC", "json")
+	tcpCodec, _ := strconv.Atoi(getEnv("CHAT_TCP_CODEC", "0"))
+	wsCodec, _ := strconv.Atoi(getEnv("CHAT_WS_CODEC", "0"))
 	rtStr := getEnv("CHAT_TCP_READ_TIMEOUT", "60")
 	wtStr := getEnv("CHAT_TCP_WRITE_TIMEOUT", "15")
 	mfsStr := getEnv("CHAT_TCP_MAX_FRAME", "1048576")

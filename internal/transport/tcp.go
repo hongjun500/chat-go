@@ -1,8 +1,8 @@
 package transport
 
 import (
+	"bytes"
 	"context"
-	"github.com/hongjun500/chat-go/internal/codec"
 	"github.com/hongjun500/chat-go/internal/protocol"
 	"io"
 	"net"
@@ -18,7 +18,8 @@ import (
 type tcpConn struct {
 	id             string
 	conn           net.Conn
-	framedCodec    *FramedMessageCodec // new structured approach
+	codec          protocol.MessageCodec
+	frameCodec     *FrameCodec // new structured approach
 	client         *chat.Client
 	closeOnce      sync.Once
 	closeChan      chan struct{}
@@ -27,7 +28,7 @@ type tcpConn struct {
 
 // TCPServer implements Transport using length-prefixed frames and MessageCodec on top
 type TCPServer struct {
-	Codec          codec.MessageCodec
+	Codec          protocol.MessageCodec
 	PayloadEncoder *protocol.PayloadEncoder
 }
 
@@ -40,8 +41,29 @@ func (t *tcpConn) RemoteAddr() string {
 	}
 	return ""
 }
+
+/*
+	func (fmc *FramedMessageCodec) Encode(msg *protocol.Envelope) error {
+		var buf bytes.Buffer
+		if err := fmc.messageCodec.Encode(&buf, msg); err != nil {
+			return err
+		}
+		return fmc.frameCodec.WriteFrame(buf.Bytes())
+	}
+
+// Decode reads a frame and decodes it using the message codec
+
+	func (fmc *FramedMessageCodec) Decode(msg *protocol.Envelope, maxSize int) error {
+		frameData, err := fmc.frameCodec.ReadFrame(maxSize)
+		if err != nil {
+			return err
+		}
+		return fmc.messageCodec.Decode(bytes.NewReader(frameData), msg, maxSize)
+	}
+*/
 func (t *tcpConn) SendEnvelope(m *protocol.Envelope) error {
-	return t.framedCodec.Encode(m)
+	var buf bytes.Buffer
+	return t.codec.Encode(&buf, m)
 }
 func (t *tcpConn) Close() error {
 	var err error
@@ -82,9 +104,7 @@ func (s *TCPServer) Name() string {
 func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gateway, opt Options) {
 	id := uuid.New().String()
 	// Create frame codec for low-level framing
-	frameCodec := NewFrameCodec(conn)
-	// Create framed message codec that combines framing with message encoding/decoding
-	framedCodec := NewFramedMessageCodec(frameCodec, s.Codec)
+	framed := NewFrameCodec(conn)
 
 	// Initialize payload encoder if not set
 	payloadEncoder := s.PayloadEncoder
@@ -99,7 +119,7 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 		id:             id,
 		conn:           conn,
 		client:         c,
-		framedCodec:    framedCodec,
+		frameCodec:     framed,
 		payloadEncoder: payloadEncoder,
 	}
 	gateway.OnSessionOpen(sess)
@@ -113,8 +133,8 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 			// Use the payload encoder to create structured envelope
 			envelope, _ := sess.payloadEncoder.EncodeText(msg)
 			envelope.Ts = time.Now().UnixMilli()
-
-			if err := framedCodec.Encode(envelope); err != nil {
+			// just to ensure it's valid
+			if err := s.Codec.Encode(&bytes.Buffer{}, envelope); err != nil {
 				logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
 				_ = conn.Close()
 				return
@@ -130,7 +150,7 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 		}
 		// Use the new structured approach - decode frame and message in one step
 		var env protocol.Envelope
-		if err := framedCodec.Decode(&env, opt.MaxFrameSize); err != nil {
+		if err := s.Codec.Decode(&bytes.Buffer{}, &env, opt.MaxFrameSize); err != nil {
 			if err != io.EOF {
 				logger.L().Sugar().Warnw("tcp_decode_error", "client", id, "err", err)
 			}

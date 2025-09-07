@@ -1,33 +1,69 @@
-package transport
+package protocol
 
 import (
 	"bytes"
 	"encoding/json"
 	"testing"
 	"time"
-
-	"github.com/hongjun500/chat-go/internal/codec"
-	"github.com/hongjun500/chat-go/internal/protocol"
 )
+
+// TestCodecFactory 测试编解码器工厂函数
+func TestCodecFactory(t *testing.T) {
+	tests := []struct {
+		name      string
+		codecType int8
+		wantError bool
+		wantType  string
+	}{
+		{"JSON Codec", 0, false, "json"},
+		{"Protobuf Codec", 1, false, "protobuf"},
+		{"Unknown Codec", 2, true, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			codec, err := NewCodec(int(tt.codecType))
+
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("Expected error for codec type %d, but got none", tt.codecType)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error for codec type %d: %v", tt.codecType, err)
+				return
+			}
+
+			if codec.Name() != tt.wantType {
+				t.Errorf("Name mismatch: got %s, want %s", codec.Name(), tt.wantType)
+			}
+		})
+	}
+}
 
 // TestCodecInteroperability 测试不同编码器的互操作性
 func TestCodecInteroperability(t *testing.T) {
 	// 创建测试消息
-	envelope := &protocol.Envelope{
+	envelope := &Envelope{
 		Version:  "1.0",
-		Type:     protocol.MsgText,
-		Encoding: protocol.EncodingJSON,
+		Type:     MsgText,
+		Encoding: EncodingJSON,
 		Mid:      "test-msg-001",
 		From:     "alice",
-		To:       "bob", 
+		To:       "bob",
 		Ts:       time.Now().UnixMilli(),
 		Payload:  json.RawMessage(`{"text":"Hello World"}`),
 	}
 
 	// 测试 JSON 编解码
 	t.Run("JSON Codec", func(t *testing.T) {
-		jsonCodec := &codec.JSONCodec{}
-		
+		jsonCodec, err := NewCodec(CodecJson)
+		if err != nil {
+			t.Fatalf("Failed to create JSON codec: %v", err)
+		}
+
 		// 编码
 		var buf bytes.Buffer
 		if err := jsonCodec.Encode(&buf, envelope); err != nil {
@@ -35,7 +71,7 @@ func TestCodecInteroperability(t *testing.T) {
 		}
 
 		// 解码
-		var decoded protocol.Envelope
+		var decoded Envelope
 		if err := jsonCodec.Decode(&buf, &decoded, 1024*1024); err != nil {
 			t.Fatalf("JSON decode failed: %v", err)
 		}
@@ -54,13 +90,13 @@ func TestCodecInteroperability(t *testing.T) {
 
 	// 测试 Protobuf 编解码
 	t.Run("Protobuf Codec", func(t *testing.T) {
-		protoCodec := &codec.ProtobufCodec{}
-		
+		protoCodec := &ProtobufCodec{}
+
 		// 修改消息为 Protobuf 格式
-		protoEnvelope := &protocol.Envelope{
+		protoEnvelope := &Envelope{
 			Version:  "1.0",
-			Type:     protocol.MsgText,
-			Encoding: protocol.EncodingProtobuf,
+			Type:     MsgText,
+			Encoding: EncodingProtobuf,
 			Mid:      "test-msg-002",
 			From:     "alice",
 			To:       "bob",
@@ -75,7 +111,7 @@ func TestCodecInteroperability(t *testing.T) {
 		}
 
 		// 解码
-		var decoded protocol.Envelope
+		var decoded Envelope
 		if err := protoCodec.Decode(&buf, &decoded, 1024*1024); err != nil {
 			t.Fatalf("Protobuf decode failed: %v", err)
 		}
@@ -93,57 +129,21 @@ func TestCodecInteroperability(t *testing.T) {
 	})
 }
 
-// TestCodecFactory 测试编解码器工厂函数
-func TestCodecFactory(t *testing.T) {
-	tests := []struct {
-		name        string
-		codecType   string
-		wantError   bool
-		wantType    string
-	}{
-		{"JSON Codec", "json", false, "application/json"},
-		{"Protobuf Codec", "protobuf", false, "application/x-protobuf"},
-		{"Unknown Codec", "unknown", true, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			codec, err := codec.NewCodec(tt.codecType)
-			
-			if tt.wantError {
-				if err == nil {
-					t.Errorf("Expected error for codec type %s, but got none", tt.codecType)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error for codec type %s: %v", tt.codecType, err)
-				return
-			}
-
-			if codec.ContentType() != tt.wantType {
-				t.Errorf("ContentType mismatch: got %s, want %s", codec.ContentType(), tt.wantType)
-			}
-		})
-	}
-}
-
 // TestPayloadTypes 测试各种负载类型的序列化
 func TestPayloadTypes(t *testing.T) {
-	jsonCodec := &codec.JSONCodec{}
+	jsonCodec := &JSONCodec{}
 
 	tests := []struct {
 		name    string
-		msgType protocol.MessageType
+		msgType MessageType
 		payload interface{}
 	}{
-		{"Text Message", protocol.MsgText, protocol.TextPayload{Text: "Hello"}},
-		{"Chat Message", "chat", protocol.ChatPayload{Content: "Hello chat"}},
-		{"Set Name", "set_name", protocol.SetNamePayload{Name: "alice"}},
-		{"Command", protocol.MsgCommand, protocol.CommandPayload{Raw: "/help"}},
-		{"Ack", protocol.MsgAck, protocol.AckPayload{Status: "ok"}},
-		{"Ping", protocol.MsgPing, protocol.PingPayload{Seq: 1, Timestamp: time.Now().UnixMilli()}},
+		{"Text Message", MsgText, TextPayload{Text: "Hello"}},
+		{"Chat Message", "chat", ChatPayload{Content: "Hello chat"}},
+		{"Set Name", "set_name", SetNamePayload{Name: "alice"}},
+		{"Command", MsgCommand, CommandPayload{Raw: "/help"}},
+		{"Ack", MsgAck, AckPayload{Status: "ok"}},
+		{"Ping", MsgPing, PingPayload{Seq: 1, Timestamp: time.Now().UnixMilli()}},
 	}
 
 	for _, tt := range tests {
@@ -155,7 +155,7 @@ func TestPayloadTypes(t *testing.T) {
 			}
 
 			// 创建信封
-			envelope := &protocol.Envelope{
+			envelope := &Envelope{
 				Type:    tt.msgType,
 				Mid:     "test-" + string(tt.msgType),
 				Ts:      time.Now().UnixMilli(),
@@ -169,7 +169,7 @@ func TestPayloadTypes(t *testing.T) {
 			}
 
 			// 解码信封
-			var decoded protocol.Envelope
+			var decoded Envelope
 			if err := jsonCodec.Decode(&buf, &decoded, 1024*1024); err != nil {
 				t.Fatalf("Failed to decode envelope: %v", err)
 			}

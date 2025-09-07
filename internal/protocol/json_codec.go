@@ -1,19 +1,18 @@
-package codec
+package protocol
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/hongjun500/chat-go/internal/protocol"
 	"io"
 )
 
 // JSONCodec 实现 Codec 接口
 type JSONCodec struct{}
 
-func (JSONCodec) ContentType() string { return ApplicationJson }
+func (JSONCodec) Name() string { return Json }
 
-func (JSONCodec) Encode(w io.Writer, e *protocol.Envelope) error {
+func (JSONCodec) Encode(w io.Writer, e *Envelope) error {
 	enc := json.NewEncoder(w)
 	return enc.Encode(e)
 }
@@ -24,7 +23,7 @@ func (JSONCodec) Encode(w io.Writer, e *protocol.Envelope) error {
 // 若检测到 JSON 开头字符不是 '{'，则返回错误。
 // 该函数采用流式解码，适合处理长连接和大数据场景。
 // Decode JSON reads a JSON payload from r and decodes it into e.
-func (JSONCodec) Decode(r io.Reader, e *protocol.Envelope, maxSize int) error {
+func (JSONCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
 	// 若指定最大消息大小，则限制读取字节数
 	if maxSize > 0 {
 		r = io.LimitReader(r, int64(maxSize))
