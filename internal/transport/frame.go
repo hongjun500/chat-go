@@ -6,20 +6,17 @@ import (
 	"io"
 	"net"
 	"sync"
-	"time"
 )
 
 // FrameCodec 数据包的编解码器，使用长度前缀帧格式
 type FrameCodec struct {
-	conn    net.Conn
 	readMu  sync.Mutex // 读锁
 	writeMu sync.Mutex // 写锁
 	bufPool *sync.Pool // 用于复用缓冲区
 }
 
-func NewFrameCodec(conn net.Conn) *FrameCodec {
+func NewFrameCodec() *FrameCodec {
 	return &FrameCodec{
-		conn: conn,
 		bufPool: &sync.Pool{
 			New: func() any {
 				// 使用 64KB 缓冲区，适合大多数场景
@@ -30,66 +27,60 @@ func NewFrameCodec(conn net.Conn) *FrameCodec {
 }
 
 // WriteFrame 写入一个帧
-func (c *FrameCodec) WriteFrame(payload []byte) error {
-	if c == nil || c.conn == nil {
-		return fmt.Errorf("framecodec or writer is nil")
+func (c *FrameCodec) WriteFrame(conn net.Conn, payload []byte) error {
+	if c == nil {
+		return fmt.Errorf("framecodec is nil")
 	}
 	if len(payload) > 16*1024*1024 { // 16MB hard limit
 		return fmt.Errorf("frame too large: %d", len(payload))
 	}
-	var header [4]byte
-	binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
+	header := make([]byte, 4)
+	binary.BigEndian.PutUint32(header, uint32(len(payload)))
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	// 零拷贝写，避免 bufio 额外拷贝
-	buffers := net.Buffers{header[:], payload}
-	_, err := buffers.WriteTo(c.conn)
-	return err
+	// 先发长度，再发内容
+	if _, err := conn.Write(header); err != nil {
+		return err
+	}
+	if _, err := conn.Write(payload); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ReadFrame 读取一个帧
-func (c *FrameCodec) ReadFrame(maxSize int) ([]byte, error) {
-	if c == nil || c.conn == nil {
+func (c *FrameCodec) ReadFrame(conn net.Conn /*, maxSize int*/) ([]byte, error) {
+	if c == nil || conn == nil {
 		return nil, fmt.Errorf("framecodec or reader is nil")
 	}
-	var header [4]byte
 	c.readMu.Lock()
 	defer c.readMu.Unlock()
+	header := make([]byte, 4)
 	// 使用 io.ReadFull 确保读取完整的 4 字节长度
-	if _, err := io.ReadFull(c.conn, header[:]); err != nil {
+	if _, err := io.ReadFull(conn, header); err != nil {
 		return nil, err
 	}
 	// 解析帧长度
-	n := int(binary.BigEndian.Uint32(header[:]))
-	if n <= 0 || (maxSize > 0 && n > maxSize) {
-		return nil, fmt.Errorf("invalid frame size: %d", n)
-	}
+	length := int(binary.BigEndian.Uint32(header))
+
 	// 使用 bufPool 获取一个缓冲区，避免频繁分配
 	buf := c.bufPool.Get().([]byte)
-	if cap(buf) < n {
-		buf = make([]byte, n) // 如果缓冲区不够大，重新分配
+	if cap(buf) < length {
+		// 容量不足，创建新缓冲区（旧缓冲区丢弃，由GC处理）
+		buf = make([]byte, length)
 	} else {
-		buf = buf[:n] // 如果缓冲区足够大，重置长度
+		// 复用缓冲区，调整长度
+		buf = buf[:length]
 	}
-
-	defer func() {
-		if c == nil || buf == nil {
-			return
-		}
-		c.bufPool.Put(buf) // 将缓冲区放回池中以供复用
-	}()
-
-	if _, err := io.ReadFull(c.conn, buf); err != nil {
+	if _, err := io.ReadFull(conn, buf); err != nil {
 		c.bufPool.Put(buf) // 读取失败，放回缓冲池
 		return nil, err
 	}
-	return buf, nil
-}
+	// 创建数据的拷贝以确保安全（调用者可以持有）
+	data := make([]byte, length)
+	copy(data, buf)
 
-// SafeDeadline applies deadline if d>0
-func SafeDeadline(conn net.Conn, d time.Duration) {
-	if conn == nil || d <= 0 {
-		return
-	}
-	_ = conn.SetDeadline(time.Now().Add(d))
+	// 放回缓冲区（重置为最大容量）
+	c.bufPool.Put(buf[:cap(buf)])
+	return data, nil
 }
