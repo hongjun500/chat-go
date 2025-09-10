@@ -1,5 +1,6 @@
 package transport
 
+/*
 import (
 	"bytes"
 	"context"
@@ -223,3 +224,4 @@ func (ws *WebSocketServer) handleLegacyMessage(sess *wsConn, text string, gatewa
 	envelope.Ts = time.Now().UnixMilli()
 	gateway.OnEnvelope(sess, envelope)
 }
+*/

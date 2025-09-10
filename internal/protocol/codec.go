@@ -17,7 +17,7 @@ const (
 	Msgpack  = "msgpack"
 )
 
-var codecFactories = map[int]func() MessageCodec{
+var CodecFactories = map[int]func() MessageCodec{
 	CodecJson:     func() MessageCodec { return &JSONCodec{} },
 	CodecProtobuf: func() MessageCodec { return &ProtobufCodec{} },
 }
@@ -31,7 +31,7 @@ type MessageCodec interface {
 
 // NewCodec 根据编码类型创建相应的编解码器
 func NewCodec(cc int) (MessageCodec, error) {
-	if factory, ok := codecFactories[cc]; ok {
+	if factory, ok := CodecFactories[cc]; ok {
 		return factory(), nil
 	}
 	return nil, fmt.Errorf("unsupported codec type: %d", cc)

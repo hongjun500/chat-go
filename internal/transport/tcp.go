@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/hongjun500/chat-go/internal/protocol"
 	"io"
 	"net"
@@ -16,20 +17,18 @@ import (
 
 // tcpConn implements Session and holds a *chat.Client for Hub integration
 type tcpConn struct {
-	id             string
-	conn           net.Conn
-	codec          protocol.MessageCodec
-	frameCodec     *FrameCodec // new structured approach
-	client         *chat.Client
-	closeOnce      sync.Once
-	closeChan      chan struct{}
-	payloadEncoder *protocol.PayloadEncoder
+	id         string
+	conn       net.Conn
+	frameCodec *FrameCodec // new structured approach
+	client     *chat.Client
+	closeOnce  sync.Once
+	closeChan  chan struct{}
+	gth        *GatewayHandler
+	writeMu    sync.Mutex
 }
 
 // TCPServer implements Transport using length-prefixed frames and MessageCodec on top
 type TCPServer struct {
-	Codec          protocol.MessageCodec
-	PayloadEncoder *protocol.PayloadEncoder
 }
 
 func (t *tcpConn) ID() string {
@@ -42,28 +41,23 @@ func (t *tcpConn) RemoteAddr() string {
 	return ""
 }
 
-/*
-	func (fmc *FramedMessageCodec) Encode(msg *protocol.Envelope) error {
-		var buf bytes.Buffer
-		if err := fmc.messageCodec.Encode(&buf, msg); err != nil {
-			return err
-		}
-		return fmc.frameCodec.WriteFrame(buf.Bytes())
-	}
-
-// Decode reads a frame and decodes it using the message codec
-
-	func (fmc *FramedMessageCodec) Decode(msg *protocol.Envelope, maxSize int) error {
-		frameData, err := fmc.frameCodec.ReadFrame(maxSize)
-		if err != nil {
-			return err
-		}
-		return fmc.messageCodec.Decode(bytes.NewReader(frameData), msg, maxSize)
-	}
-*/
 func (t *tcpConn) SendEnvelope(m *protocol.Envelope) error {
-	var buf bytes.Buffer
-	return t.codec.Encode(&buf, m)
+
+	framed, err := t.frameCodec.ReadFrame(t.conn)
+	if err != nil {
+		return fmt.Errorf("read frame error: %w", err)
+	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	total := 0
+	for total < len(framed) {
+		n, err := t.conn.Write(framed[total:])
+		if err != nil {
+			return fmt.Errorf("tcp write error: %w", err)
+		}
+		total += n
+	}
+	return nil
 }
 func (t *tcpConn) Close() error {
 	var err error
@@ -104,23 +98,17 @@ func (s *TCPServer) Name() string {
 func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gateway, opt Options) {
 	id := uuid.New().String()
 	// Create frame codec for low-level framing
-	framed := NewFrameCodec(conn)
-
-	// Initialize payload encoder if not set
-	payloadEncoder := s.PayloadEncoder
-	if payloadEncoder == nil {
-		payloadEncoder = protocol.DefaultPayloadEncoder
-	}
+	framed := NewFrameCodec()
 
 	// chat client for Hub
 	c := chat.NewClientWithBuffer(id, opt.OutBuffer)
 	c.Meta = map[string]string{"level": "0"}
 	sess := &tcpConn{
-		id:             id,
-		conn:           conn,
-		client:         c,
-		frameCodec:     framed,
-		payloadEncoder: payloadEncoder,
+		id:         id,
+		conn:       conn,
+		client:     c,
+		frameCodec: framed,
+		gwt:        gateway.OnSessionOpen,
 	}
 	gateway.OnSessionOpen(sess)
 
@@ -130,6 +118,7 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 			if opt.WriteTimeout > 0 {
 				_ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
 			}
+			sess.gth
 			// Use the payload encoder to create structured envelope
 			envelope, _ := sess.payloadEncoder.EncodeText(msg)
 			envelope.Ts = time.Now().UnixMilli()

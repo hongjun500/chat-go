@@ -54,7 +54,7 @@ func TestCodecInteroperability(t *testing.T) {
 		From:     "alice",
 		To:       "bob",
 		Ts:       time.Now().UnixMilli(),
-		Payload:  json.RawMessage(`{"text":"Hello World"}`),
+		Data:     json.RawMessage(`{"text":"Hello World"}`),
 	}
 
 	// 测试 JSON 编解码
@@ -156,10 +156,10 @@ func TestPayloadTypes(t *testing.T) {
 
 			// 创建信封
 			envelope := &Envelope{
-				Type:    tt.msgType,
-				Mid:     "test-" + string(tt.msgType),
-				Ts:      time.Now().UnixMilli(),
-				Payload: json.RawMessage(payloadData),
+				Type: tt.msgType,
+				Mid:  "test-" + string(tt.msgType),
+				Ts:   time.Now().UnixMilli(),
+				Data: json.RawMessage(payloadData),
 			}
 
 			// 编码信封

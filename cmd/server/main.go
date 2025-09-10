@@ -47,7 +47,7 @@ func main() {
 	// 并发启动 TCP/WS/HTTP（静态页 ws.html 用于 WebSocket 测试）
 	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
 	go func() {
-		tcpSrv := &transport.TCPServer{Codec: tcpCodec}
+		tcpSrv := &transport.TCPServer{}
 		gw := transport.NewGatewayHandler(hub, cmdReg)
 		logger.L().Sugar().Infow("starting_tcp_server", "addr", cfg.TCPAddr, "codec", cfg.TCPCodec)
 		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
