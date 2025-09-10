@@ -1,9 +1,6 @@
 package transport
 
 import (
-	"strings"
-	"time"
-
 	"github.com/hongjun500/chat-go/internal/chat"
 	"github.com/hongjun500/chat-go/internal/command"
 	"github.com/hongjun500/chat-go/internal/protocol"
@@ -29,6 +26,7 @@ func NewGatewayHandler(hub *chat.Hub, commands *command.Registry) *GatewayHandle
 		Commands: commands,
 	}
 	g.dispatcher = NewEnvelopeDispatcher()
+	g.dispatcher.ptl = protocol.NewProtocol(protocol.CodecJson)
 	return g
 }
 
@@ -37,7 +35,7 @@ func (g *GatewayHandler) OnSessionOpen(sess Session) {
 }
 
 func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
-	err := g.dispatcher.Dispatch(sess, m)
+	/*err := g.dispatcher.Dispatch(sess, m)
 	// Session 实现中持有 *chat.Client，路由依赖该客户端的 Name 状态。
 	ts := time.Now().UnixMilli()
 	switch m.Type {
@@ -189,7 +187,7 @@ func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
 		ackEnv.Mid = m.Mid
 		ackEnv.Ts = ts
 		_ = sess.SendEnvelope(ackEnv)
-	}
+	}*/
 }
 
 func (g *GatewayHandler) OnSessionClose(sess Session, err error) {
@@ -208,7 +206,7 @@ func getClient(sess Session) *chat.Client {
 	// Try WebSocket session
 	// [TODO] ws
 	// if ws, ok := sess.(*wsConn); ok {
-		// return ws.client
+	// return ws.client
 	// }
 	return nil
 }

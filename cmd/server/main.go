@@ -58,14 +58,15 @@ func main() {
 		})
 	}()
 	go func() {
-		wsSrv := &transport.WebSocketServer{Codec: wsCodec}
+		// [WebSocket暂未启用]
+		/*wsSrv := &transport.WebSocketServer{Codec: wsCodec}
 		gw := transport.NewGatewayHandler(hub, cmdReg)
 		logger.L().Sugar().Infow("starting_ws_server", "addr", cfg.WSAddr, "codec", cfg.WSCodec)
 		_ = wsSrv.Start(context.Background(), cfg.WSAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
 			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
-		})
+		})*/
 	}()
 	go func() {
 		logger.L().Sugar().Infow("starting_http_server", "addr", cfg.HTTPAddr)

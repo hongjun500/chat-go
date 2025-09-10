@@ -1,18 +1,14 @@
 package transport
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"github.com/hongjun500/chat-go/internal/protocol"
-	"io"
-	"net"
-	"sync"
-	"time"
-
 	"github.com/google/uuid"
 	"github.com/hongjun500/chat-go/internal/chat"
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"github.com/hongjun500/chat-go/pkg/logger"
+	"go.uber.org/zap/buffer"
+	"net"
+	"sync"
 )
 
 // tcpConn implements Session and holds a *chat.Client for Hub integration
@@ -23,7 +19,7 @@ type tcpConn struct {
 	client     *chat.Client
 	closeOnce  sync.Once
 	closeChan  chan struct{}
-	gth        *GatewayHandler
+	ptl        *protocol.Protocol
 	writeMu    sync.Mutex
 }
 
@@ -42,22 +38,13 @@ func (t *tcpConn) RemoteAddr() string {
 }
 
 func (t *tcpConn) SendEnvelope(e *protocol.Envelope) error {
-
-	framed, err := t.frameCodec.ReadFrame(t.conn)
-	if err != nil {
-		return fmt.Errorf("read frame error: %w", err)
-	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	total := 0
-	for total < len(framed) {
-		n, err := t.conn.Write(framed[total:])
-		if err != nil {
-			return fmt.Errorf("tcp write error: %w", err)
-		}
-		total += n
+	var buff buffer.Buffer
+	if err := t.ptl.Codec.Encode(&buff, e); err != nil {
+		return err
 	}
-	return nil
+	return t.frameCodec.WriteFrame(t.conn, buff.Bytes())
 }
 func (t *tcpConn) Close() error {
 	var err error
@@ -108,13 +95,14 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 		conn:       conn,
 		client:     c,
 		frameCodec: framed,
-		gwt:        gateway.OnSessionOpen,
+		// todo: support other protocols
+		ptl: protocol.NewProtocol(protocol.CodecJson),
 	}
 	gateway.OnSessionOpen(sess)
 
 	// writer: drain client outgoing to session (wrap plain text into Envelope with typed payload)
 	go func() {
-		for msg := range c.Outgoing() {
+		/*for msg := range c.Outgoing() {
 			if opt.WriteTimeout > 0 {
 				_ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
 			}
@@ -128,13 +116,13 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 				_ = conn.Close()
 				return
 			}
-		}
+		}*/
 		_ = conn.Close()
 	}()
 
 	// reader loop
 	for {
-		if opt.ReadTimeout > 0 {
+		/*if opt.ReadTimeout > 0 {
 			_ = conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout))
 		}
 		// Use the new structured approach - decode frame and message in one step
@@ -146,6 +134,6 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 			gateway.OnSessionClose(sess, err)
 			return
 		}
-		gateway.OnEnvelope(sess, &env)
+		gateway.OnEnvelope(sess, &env)*/
 	}
 }

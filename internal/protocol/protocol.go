@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"fmt"
-	"go.uber.org/zap/buffer"
 	"strings"
 	"sync"
 )
@@ -13,7 +12,7 @@ type Protocol struct {
 	mu             sync.RWMutex
 	handlers       map[MessageType]MessageHandler
 	defaultHandler MessageHandler
-	codec          MessageCodec
+	Codec          MessageCodec
 }
 
 var DefaultProtocol *Protocol
@@ -27,7 +26,7 @@ func init() {
 func NewProtocol(codecType int) *Protocol {
 	return &Protocol{
 		handlers: make(map[MessageType]MessageHandler),
-		codec:    CodecFactories[codecType](),
+		Codec:    CodecFactories[codecType](),
 	}
 }
 
@@ -62,11 +61,7 @@ func (d *Protocol) Welcome(text string) (*Envelope, error) {
 	e := &Envelope{
 		Type: MsgText,
 		Ts:   0,
-		Data: nil,
-	}
-	var buff buffer.Buffer
-	if err := d.codec.Encode(&buff, e); err != nil {
-		return nil, err
+		Data: []byte(text),
 	}
 	return e, nil
 }
