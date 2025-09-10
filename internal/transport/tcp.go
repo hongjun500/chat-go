@@ -41,7 +41,7 @@ func (t *tcpConn) RemoteAddr() string {
 	return ""
 }
 
-func (t *tcpConn) SendEnvelope(m *protocol.Envelope) error {
+func (t *tcpConn) SendEnvelope(e *protocol.Envelope) error {
 
 	framed, err := t.frameCodec.ReadFrame(t.conn)
 	if err != nil {

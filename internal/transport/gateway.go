@@ -33,11 +33,7 @@ func NewGatewayHandler(hub *chat.Hub, commands *command.Registry) *GatewayHandle
 }
 
 func (g *GatewayHandler) OnSessionOpen(sess Session) {
-	// 提示信息通过 text 类型的 payload 传递
-	envelope, _ := g.PayloadEncoder.EncodeText("请输入昵称并回车：")
-	envelope.Ts = time.Now().UnixMilli()
-	_ = sess.SendEnvelope(envelope)
-	g.dispatcher.Dispatch(sess, envelope)
+	g.dispatcher.Welcome(sess)
 }
 
 func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
@@ -210,8 +206,9 @@ func getClient(sess Session) *chat.Client {
 		return ts.client
 	}
 	// Try WebSocket session
-	if ws, ok := sess.(*wsConn); ok {
-		return ws.client
-	}
+	// [TODO] ws
+	// if ws, ok := sess.(*wsConn); ok {
+		// return ws.client
+	// }
 	return nil
 }
