@@ -19,7 +19,7 @@ var DefaultProtocol *Protocol
 
 func init() {
 	// 注册内置的 text 消息处理函数
-	DefaultProtocol := NewProtocol(CodecJson)
+	DefaultProtocol = NewProtocol(CodecJson)
 	DefaultProtocol.SetDefaultHandler(DefaultProtocol.textHandler)
 }
 
