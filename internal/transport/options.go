@@ -8,4 +8,6 @@ type Options struct {
 	ReadTimeout  time.Duration // per-read deadline; 0 to disable
 	WriteTimeout time.Duration // per-write deadline; 0 to disable
 	MaxFrameSize int           // for framed transports (bytes), default 1MB
+	TCPCodec     int           // TCP 编解码器类型 (0:JSON, 1:Protobuf)
+	WSCodec      int           // WebSocket 编解码器类型 (0:JSON, 1:Protobuf)
 }
