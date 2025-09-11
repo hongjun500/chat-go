@@ -1,7 +1,5 @@
 package protocol
 
-import "encoding/json"
-
 // Encoding 表示消息负载的编码方式
 type Encoding string
 
@@ -36,13 +34,7 @@ type Envelope struct {
 	To          string `json:"to,omitempty"`
 	Ts          int64  `json:"ts"` // 毫秒时间戳
 
-	// ---- 负载 ----
-	// 规则：
-	// 1. 如果 Encoding=json → Payload 里就是 JSON RawMessage
-	// 2. 如果 Encoding=protobuf → Data 里就是原始 Protobuf 字节（非 base64，直接走二进制帧）
-	// 3. Payload/Data 二选一
-	Payload json.RawMessage `json:"payload,omitempty"`
-	Data    []byte          `json:"data,omitempty"`
+	Data []byte `json:"data,omitempty"` // 原始数据
 }
 
 // TextPayload 纯文本消息负载

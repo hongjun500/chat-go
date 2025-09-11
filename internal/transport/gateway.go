@@ -1,41 +1,41 @@
 package transport
 
 import (
-	"strings"
-	"time"
-
 	"github.com/hongjun500/chat-go/internal/chat"
 	"github.com/hongjun500/chat-go/internal/command"
 	"github.com/hongjun500/chat-go/internal/protocol"
 )
 
+type HandlerFunc func(sess Session, msg *protocol.Envelope)
+
+var handlers = map[string]HandlerFunc{
+	"text": nil,
+}
+
 // GatewayHandler hosts auth/nickname, commands and chat routing in a protocol-agnostic way
 type GatewayHandler struct {
-	Hub           *chat.Hub
-	Commands      *command.Registry
-	PayloadDecoder *protocol.PayloadDecoder
-	PayloadEncoder *protocol.PayloadEncoder
+	Hub        *chat.Hub
+	Commands   *command.Registry
+	dispatcher *EnvelopeDispatcher
 }
 
 // NewGatewayHandler creates a new gateway handler with default payload codec
 func NewGatewayHandler(hub *chat.Hub, commands *command.Registry) *GatewayHandler {
-	codec := protocol.NewPayloadCodec()
-	return &GatewayHandler{
-		Hub:           hub,
-		Commands:      commands,
-		PayloadDecoder: protocol.NewPayloadDecoder(codec),
-		PayloadEncoder: protocol.NewPayloadEncoder(codec),
+	g := &GatewayHandler{
+		Hub:      hub,
+		Commands: commands,
 	}
+	g.dispatcher = NewEnvelopeDispatcher()
+	g.dispatcher.ptl = protocol.NewProtocol(protocol.CodecJson)
+	return g
 }
 
 func (g *GatewayHandler) OnSessionOpen(sess Session) {
-	// 提示信息通过 text 类型的 payload 传递
-	envelope, _ := g.PayloadEncoder.EncodeText("请输入昵称并回车：")
-	envelope.Ts = time.Now().UnixMilli()
-	_ = sess.SendEnvelope(envelope)
+	g.dispatcher.Welcome(sess)
 }
 
 func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
+	/*err := g.dispatcher.Dispatch(sess, m)
 	// Session 实现中持有 *chat.Client，路由依赖该客户端的 Name 状态。
 	ts := time.Now().UnixMilli()
 	switch m.Type {
@@ -187,7 +187,7 @@ func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
 		ackEnv.Mid = m.Mid
 		ackEnv.Ts = ts
 		_ = sess.SendEnvelope(ackEnv)
-	}
+	}*/
 }
 
 func (g *GatewayHandler) OnSessionClose(sess Session, err error) {
@@ -204,8 +204,9 @@ func getClient(sess Session) *chat.Client {
 		return ts.client
 	}
 	// Try WebSocket session
-	if ws, ok := sess.(*wsConn); ok {
-		return ws.client
-	}
+	// [TODO] ws
+	// if ws, ok := sess.(*wsConn); ok {
+	// return ws.client
+	// }
 	return nil
 }
