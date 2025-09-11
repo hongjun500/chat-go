@@ -62,9 +62,12 @@ func (c *FrameCodec) ReadFrame(conn net.Conn /*, maxSize int*/) ([]byte, error) 
 	}
 	// 解析帧长度
 	length := int(binary.BigEndian.Uint32(header))
-    if maxSize > 0 && length > maxSize {
-        return nil, fmt.Errorf("frame exceeds max size: %d > %d", length, maxSize)
-    }
+
+	/*
+			if maxSize > 0 && length > maxSize {
+		        return nil, fmt.Errorf("frame exceeds max size: %d > %d", length, maxSize)
+		    }
+	*/
 	// 使用 bufPool 获取一个缓冲区，避免频繁分配
 	buf := c.bufPool.Get().([]byte)
 	if cap(buf) < length {

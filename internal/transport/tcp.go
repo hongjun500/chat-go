@@ -90,35 +90,37 @@ func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gatewa
 	// chat client for Hub
 	c := chat.NewClientWithBuffer(id, opt.OutBuffer)
 	c.Meta = map[string]string{"level": "0"}
-	sess := &tcpConn{
-		id:         id,
-		conn:       conn,
-		client:     c,
-		frameCodec: framed,
-		// todo: support other protocols
-		ptl: protocol.NewProtocol(protocol.CodecJson),
-	}
-	gateway.OnSessionOpen(sess)
+    sess := &tcpConn{
+        id:         id,
+        conn:       conn,
+        client:     c,
+        frameCodec: framed,
+        // todo: support other protocols
+        ptl:        protocol.NewProtocol(protocol.CodecJson),
+        closeChan:  make(chan struct{}),
+    }
+    gateway.OnSessionOpen(sess)
 
 	// writer: drain client outgoing to session (wrap plain text into Envelope with typed payload)
-	go func() {
-		/*for msg := range c.Outgoing() {
-			if opt.WriteTimeout > 0 {
-				_ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
-			}
-			sess.gth
-			// Use the payload encoder to create structured envelope
-			envelope, _ := sess.payloadEncoder.EncodeText(msg)
-			envelope.Ts = time.Now().UnixMilli()
-			// just to ensure it's valid
-			if err := s.Codec.Encode(&bytes.Buffer{}, envelope); err != nil {
-				logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
-				_ = conn.Close()
-				return
-			}
-		}*/
-		_ = conn.Close()
-	}()
+    go func() {
+        /*for msg := range c.Outgoing() {
+            if opt.WriteTimeout > 0 {
+                _ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
+            }
+            sess.gth
+            // Use the payload encoder to create structured envelope
+            envelope, _ := sess.payloadEncoder.EncodeText(msg)
+            envelope.Ts = time.Now().UnixMilli()
+            // just to ensure it's valid
+            if err := s.Codec.Encode(&bytes.Buffer{}, envelope); err != nil {
+                logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
+                _ = conn.Close()
+                return
+            }
+        }*/
+        // 保持连接存活：等待会话关闭信号
+        <-sess.closeChan
+    }()
 
 	// reader loop
 	for {
