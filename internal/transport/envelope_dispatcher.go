@@ -3,85 +3,47 @@ package transport
 import (
 	"fmt"
 	"github.com/hongjun500/chat-go/internal/protocol"
-	"time"
 )
 
-var hds = make(map[string]func(Session, *protocol.Envelope) error)
-
-func init() {
-	d := NewEnvelopeDispatcher()
-	hds[string(protocol.MsgText)] = d.textHandler
-}
-
+// EnvelopeDispatcher 信封分发器，使用新的消息路由器
 type EnvelopeDispatcher struct {
-	ptl      *protocol.Protocol
-	handlers map[string]func(Session, *protocol.Envelope) error
+	protocol *protocol.Protocol
+	router   *protocol.MessageRouter
 }
 
-func NewEnvelopeDispatcher() *EnvelopeDispatcher {
+// NewEnvelopeDispatcher 创建信封分发器
+func NewEnvelopeDispatcher(codecType int) *EnvelopeDispatcher {
 	d := &EnvelopeDispatcher{
-		ptl:      protocol.DefaultProtocol,
-		handlers: hds,
+		protocol: protocol.NewProtocol(codecType),
+		router:   protocol.NewMessageRouter(),
 	}
+	
+	// 注册默认的文本处理器
+	d.router.RegisterHandler(protocol.MsgText, d.textHandler)
+	
 	return d
 }
 
+// Welcome 发送欢迎消息
 func (d *EnvelopeDispatcher) Welcome(sess Session) {
-	envelope, _ := d.ptl.Welcome("请输入昵称并回车：")
-	envelope.Ts = time.Now().UnixMilli()
+	envelope := d.protocol.Welcome("请输入昵称并回车：")
 	_ = sess.SendEnvelope(envelope)
 }
 
+// Dispatch 分发消息
 func (d *EnvelopeDispatcher) Dispatch(sess Session, e *protocol.Envelope) error {
-	if handler, ok := d.handlers[string(e.Type)]; ok {
-		return handler(sess, e)
-	}
-	// 如果没有找到对应的处理函数，可以选择返回错误或者忽略
-	return fmt.Errorf("no handler for message type: %s", e.Type)
+	return d.router.Dispatch(e)
 }
 
-func (d *EnvelopeDispatcher) textHandler(sess Session, e *protocol.Envelope) error {
-	/*c := getClient(sess)
-	if c.Name == "" {
-		err := d.ptl.Dispatch(e)
-		//p, err := g.PayloadDecoder.DecodeText(m)
-		if err != nil {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		name := strings.TrimSpace(p.Text)
-		if name == "" {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("invalid_name")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		if g.Hub.IsBanned(name) {
-			textEnv, _ := g.PayloadEncoder.EncodeText("该用户已被封禁")
-			textEnv.Ts = ts
-			_ = sess.SendEnvelope(textEnv)
-			g.Hub.UnregisterClient(c)
-			return
-		}
-		c.Name = name
-		g.Hub.RegisterClient(c)
-		textEnv, _ := g.PayloadEncoder.EncodeText("昵称设置成功：" + c.Name)
-		textEnv.Ts = ts
-		_ = sess.SendEnvelope(textEnv)
-		return
-	}
-	p, err := g.PayloadDecoder.DecodeText(m)
-	if err != nil {
-		ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-		ackEnv.Mid = m.Mid
-		ackEnv.Ts = ts
-		_ = sess.SendEnvelope(ackEnv)
-		return
-	}
-	g.Hub.BroadcastLocal(c.Name, p.Text)*/
+// RegisterHandler 注册消息处理器
+func (d *EnvelopeDispatcher) RegisterHandler(msgType protocol.MessageType, handler protocol.MessageHandler) {
+	d.router.RegisterHandler(msgType, handler)
+}
+
+// textHandler 文本消息处理器（示例实现）
+func (d *EnvelopeDispatcher) textHandler(env *protocol.Envelope) error {
+	// 这里是简化的实现，实际应该由业务层处理
+	// 比如设置昵称、聊天等逻辑
+	fmt.Printf("Received text message: %s\n", string(env.Data))
 	return nil
 }

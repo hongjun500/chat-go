@@ -1,72 +1,79 @@
 package protocol
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
-	"sync"
+	"time"
 )
 
-type MessageHandler func(env *Envelope) error
-
+// Protocol 负责消息创建和编解码管理
 type Protocol struct {
-	mu             sync.RWMutex
-	handlers       map[MessageType]MessageHandler
-	defaultHandler MessageHandler
-	Codec          MessageCodec
+	codec MessageCodec
 }
 
-var DefaultProtocol *Protocol
-
-func init() {
-	// 注册内置的 text 消息处理函数
-	DefaultProtocol = NewProtocol(CodecJson)
-	DefaultProtocol.SetDefaultHandler(DefaultProtocol.textHandler)
-}
-
+// NewProtocol 创建新的协议实例
 func NewProtocol(codecType int) *Protocol {
+	codec, err := NewCodec(codecType)
+	if err != nil {
+		// 如果创建失败，回退到 JSON 编解码器
+		codec = &JSONCodec{}
+	}
 	return &Protocol{
-		handlers: make(map[MessageType]MessageHandler),
-		Codec:    CodecFactories[codecType](),
+		codec: codec,
 	}
 }
 
-func (d *Protocol) RegisterHandler(msgType MessageType, handler MessageHandler) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.handlers[msgType] = handler
+// GetCodec 获取编解码器
+func (p *Protocol) GetCodec() MessageCodec {
+	return p.codec
 }
 
-// SetDefaultHandler 设置默认处理函数
-func (d *Protocol) SetDefaultHandler(handler MessageHandler) {
-	d.defaultHandler = handler
+// SetCodec 设置编解码器
+func (p *Protocol) SetCodec(codec MessageCodec) {
+	p.codec = codec
 }
 
-// Dispatch 分发消息到对应处理函数
-func (d *Protocol) Dispatch(env *Envelope) error {
-	d.mu.RLock()
-	handler, ok := d.handlers[env.Type]
-	d.mu.RUnlock()
-	if ok {
-		return handler(env)
-	}
-	if d.defaultHandler != nil {
-		return d.defaultHandler(env)
-	}
-	return fmt.Errorf("no handler registered for message type: %s", env.Type)
-}
-
-// Welcome 发送欢迎消息
-func (d *Protocol) Welcome(text string) (*Envelope, error) {
+// Welcome 创建欢迎消息
+func (p *Protocol) Welcome(text string) *Envelope {
 	text = strings.TrimSpace(text)
-	e := &Envelope{
-		Type: MsgText,
-		Ts:   0,
-		Data: []byte(text),
+	return &Envelope{
+		Type:    MsgText,
+		Ts:      time.Now().UnixMilli(),
+		Data:    []byte(text),
+		Version: "1.0",
 	}
-	return e, nil
 }
 
-func (d *Protocol) textHandler(env *Envelope) error {
+// CreateTextMessage 创建文本消息
+func (p *Protocol) CreateTextMessage(text string) *Envelope {
+	return &Envelope{
+		Type:    MsgText,
+		Ts:      time.Now().UnixMilli(),
+		Data:    []byte(text),
+		Version: "1.0",
+	}
+}
 
-	return nil
+// CreateAckMessage 创建确认消息
+func (p *Protocol) CreateAckMessage(status string) *Envelope {
+	payload := AckPayload{Status: status}
+	data, _ := p.codec.(*JSONCodec) // 简化处理，实际可以更严谨
+	if data != nil {
+		// 如果是 JSON 编解码器，直接序列化
+		if jsonData, err := json.Marshal(payload); err == nil {
+			return &Envelope{
+				Type:    MsgAck,
+				Ts:      time.Now().UnixMilli(),
+				Data:    jsonData,
+				Version: "1.0",
+			}
+		}
+	}
+	// 回退到简单的字符串格式
+	return &Envelope{
+		Type:    MsgAck,
+		Ts:      time.Now().UnixMilli(),
+		Data:    []byte(status),
+		Version: "1.0",
+	}
 }
