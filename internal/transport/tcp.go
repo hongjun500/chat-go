@@ -80,7 +80,7 @@ func (s *tcpSession) readLoop(gateway Gateway, opt Options) {
 			if err != io.EOF && s.State() == SessionStateActive {
 				logger.L().Sugar().Warnw("tcp_read_error", "session", s.ID(), "err", err)
 			}
-			return
+			continue
 		}
 		
 		// 解码消息
