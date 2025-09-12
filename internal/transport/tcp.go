@@ -96,13 +96,13 @@ func (s *tcpSession) readLoop(gateway Gateway, opt Options) {
 
 // TCPServer TCP 服务器实现
 type TCPServer struct {
-	sessionManager *SessionManager
+	addr string
 }
 
 // NewTCPServer 创建 TCP 服务器
-func NewTCPServer() *TCPServer {
+func NewTCPServer(addr string) *TCPServer {
 	return &TCPServer{
-		sessionManager: NewSessionManager(),
+		addr: addr,
 	}
 }
 
@@ -112,17 +112,17 @@ func (s *TCPServer) Name() string {
 }
 
 // Start 启动 TCP 服务器
-func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
+func (s *TCPServer) Start(ctx context.Context, gateway Gateway, opt Options) error {
 	if opt.MaxFrameSize <= 0 {
 		opt.MaxFrameSize = 1 << 20 // 默认 1MB
 	}
 
-	ln, err := net.Listen(Tcp, addr)
+	ln, err := net.Listen(Tcp, s.addr)
 	if err != nil {
 		return err
 	}
 
-	logger.L().Sugar().Infow("tcp_listen", "addr", addr)
+	logger.L().Sugar().Infow("tcp_listen", "addr", s.addr)
 
 	// 优雅关闭
 	go func() {
@@ -146,17 +146,8 @@ func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt
 // handleConnection 处理新连接
 func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn, gateway Gateway, opt Options) {
 	id := uuid.New().String()
-
 	// 创建会话
 	session := newTcpSession(id, conn, opt.TCPCodec)
-
-	// 添加到会话管理器
-	s.sessionManager.AddSession(session)
-
-	// 清理处理
-	session.AddCloseHandler(func() {
-		s.sessionManager.RemoveSession(id)
-	})
 
 	// 通知网关会话开启
 	gateway.OnSessionOpen(session)

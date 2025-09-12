@@ -47,10 +47,10 @@ func main() {
 	// 并发启动 TCP/WS/HTTP（静态页 ws.html 用于 WebSocket 测试）
 	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
 	go func() {
-		tcpSrv := transport.NewTCPServer()
+		tcpSrv := transport.NewTCPServer(cfg.TCPAddr)
 		gw := transport.NewSimpleGateway(0)
 		logger.L().Sugar().Infow("starting_tcp_server", "addr", cfg.TCPAddr, "codec", cfg.TCPCodec)
-		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
+		_ = tcpSrv.Start(context.Background(), gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
 			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,

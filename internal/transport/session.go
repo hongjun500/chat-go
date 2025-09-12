@@ -15,14 +15,14 @@ const (
 
 // BaseSession 基础会话实现，提供通用功能
 type BaseSession struct {
-	id           string
-	remoteAddr   string
-	state        SessionState
-	stateMu      sync.RWMutex
-	metadata     map[string]string
-	metaMu       sync.RWMutex
+	id            string
+	remoteAddr    string
+	state         SessionState
+	stateMu       sync.RWMutex
+	metadata      map[string]string
+	metaMu        sync.RWMutex
 	closeHandlers []func()
-	closeOnce    sync.Once
+	closeOnce     sync.Once
 }
 
 // NewBaseSession 创建基础会话
@@ -83,13 +83,13 @@ func (s *BaseSession) AddCloseHandler(handler func()) {
 func (s *BaseSession) markClosed() {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
-	
+
 	if s.state == SessionStateClosed {
 		return
 	}
-	
+
 	s.state = SessionStateClosed
-	
+
 	// 执行关闭处理器
 	for _, handler := range s.closeHandlers {
 		go handler()
@@ -99,48 +99,43 @@ func (s *BaseSession) markClosed() {
 
 // SessionManager 会话管理器
 type SessionManager struct {
-	sessions map[string]Session
-	mu       sync.RWMutex
+	sessions sync.Map
 }
 
 // NewSessionManager 创建会话管理器
 func NewSessionManager() *SessionManager {
-	return &SessionManager{
-		sessions: make(map[string]Session),
-	}
+	return &SessionManager{}
 }
 
 // AddSession 添加会话
 func (sm *SessionManager) AddSession(session Session) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.sessions[session.ID()] = session
+	sm.sessions.Store(session.ID(), session)
 }
 
 // RemoveSession 移除会话
 func (sm *SessionManager) RemoveSession(sessionID string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	delete(sm.sessions, sessionID)
+	sm.sessions.Delete(sessionID)
 }
 
 // GetSession 获取会话
 func (sm *SessionManager) GetSession(sessionID string) (Session, bool) {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	session, exists := sm.sessions[sessionID]
-	return session, exists
+	session, exists := sm.sessions.Load(sessionID)
+	if !exists {
+		return nil, false
+	}
+	if s, ok := session.(Session); ok {
+		return s, true
+	}
+	return nil, false
 }
 
 // GetAllSessions 获取所有会话
 func (sm *SessionManager) GetAllSessions() []Session {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	
-	sessions := make([]Session, 0, len(sm.sessions))
-	for _, session := range sm.sessions {
-		sessions = append(sessions, session)
-	}
+	sessions := make([]Session, 0)
+	sm.sessions.Range(func(key, value any) bool {
+		sessions = append(sessions, value.(Session))
+		return true
+	})
 	return sessions
 }
 
