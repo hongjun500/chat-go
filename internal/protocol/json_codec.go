@@ -13,8 +13,18 @@ type JSONCodec struct{}
 func (JSONCodec) Name() string { return Json }
 
 func (JSONCodec) Encode(w io.Writer, e *Envelope) error {
+	if e == nil {
+		return fmt.Errorf("JSONCodec.Encode: envelope is nil")
+	}
+	if w == nil {
+		return fmt.Errorf("JSONCodec.Encode: writer is nil")
+	}
+	
 	enc := json.NewEncoder(w)
-	return enc.Encode(e)
+	if err := enc.Encode(e); err != nil {
+		return fmt.Errorf("JSONCodec.Encode: failed to encode envelope (Type=%s, Mid=%s): %w", e.Type, e.Mid, err)
+	}
+	return nil
 }
 
 // Decode 从 r 中读取 JSON 数据并解码到 e。
@@ -24,6 +34,13 @@ func (JSONCodec) Encode(w io.Writer, e *Envelope) error {
 // 该函数采用流式解码，适合处理长连接和大数据场景。
 // Decode JSON reads a JSON payload from r and decodes it into e.
 func (JSONCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
+	if r == nil {
+		return fmt.Errorf("JSONCodec.Decode: reader is nil")
+	}
+	if e == nil {
+		return fmt.Errorf("JSONCodec.Decode: envelope is nil")
+	}
+	
 	// 若指定最大消息大小，则限制读取字节数
 	if maxSize > 0 {
 		r = io.LimitReader(r, int64(maxSize))
@@ -33,20 +50,20 @@ func (JSONCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
 	// 预读首字节，用于验证是否为 JSON 对象
 	firstByte, err := bufReader.Peek(1)
 	if err != nil {
-		return fmt.Errorf("read first byte: %w", err)
+		return fmt.Errorf("JSONCodec.Decode: failed to read first byte: %w", err)
 	}
 	if firstByte[0] != '{' {
-		return fmt.Errorf("payload not object")
+		return fmt.Errorf("JSONCodec.Decode: payload is not a JSON object, first byte is 0x%02x", firstByte[0])
 	}
 	// 创建 JSON 解码器（基于流式读取，避免一次性加载全部数据）
 	dec := json.NewDecoder(bufReader)
 	if err := dec.Decode(e); err != nil {
-		return fmt.Errorf("json decode: %w", err)
+		return fmt.Errorf("JSONCodec.Decode: failed to decode JSON payload: %w", err)
 	}
 
 	if e.Type == "" {
 		// Not strictly required, but helps catch malformed inputs
-		return fmt.Errorf("missing field: type")
+		return fmt.Errorf("JSONCodec.Decode: decoded envelope missing required field 'type'")
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/hongjun500/chat-go/internal/protocol/pb"
@@ -15,6 +16,13 @@ func (p *ProtobufCodec) Name() string {
 }
 
 func (p *ProtobufCodec) Encode(w io.Writer, e *Envelope) error {
+	if e == nil {
+		return fmt.Errorf("ProtobufCodec.Encode: envelope is nil")
+	}
+	if w == nil {
+		return fmt.Errorf("ProtobufCodec.Encode: writer is nil")
+	}
+	
 	protoMessage := &pb.Envelope{
 		Version:       e.Version,
 		Type:          toPBMsgType(e.Type),
@@ -29,14 +37,24 @@ func (p *ProtobufCodec) Encode(w io.Writer, e *Envelope) error {
 
 	data, err := proto.Marshal(protoMessage)
 	if err != nil {
-		return err
+		return fmt.Errorf("ProtobufCodec.Encode: failed to marshal protobuf message (Type=%s, Mid=%s): %w", e.Type, e.Mid, err)
 	}
-	_, err = w.Write(data)
-	return err
+	
+	if _, err = w.Write(data); err != nil {
+		return fmt.Errorf("ProtobufCodec.Encode: failed to write marshaled data: %w", err)
+	}
+	return nil
 }
 
 // Decode ProtobufCodec 实现 Codec 接口
 func (p *ProtobufCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
+	if r == nil {
+		return fmt.Errorf("ProtobufCodec.Decode: reader is nil")
+	}
+	if e == nil {
+		return fmt.Errorf("ProtobufCodec.Decode: envelope is nil")
+	}
+	
 	reader := r
 	if maxSize > 0 {
 		reader = io.LimitReader(r, int64(maxSize))
@@ -45,13 +63,18 @@ func (p *ProtobufCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
 	buf := make([]byte, maxSize)
 	n, err := reader.Read(buf)
 	if err != nil && err != io.EOF {
-		return err
+		return fmt.Errorf("ProtobufCodec.Decode: failed to read data: %w", err)
 	}
+	
+	if n == 0 {
+		return fmt.Errorf("ProtobufCodec.Decode: no data to decode")
+	}
+	
 	data := buf[:n]
 
 	protoMessage := &pb.Envelope{}
 	if err := proto.Unmarshal(data, protoMessage); err != nil {
-		return err
+		return fmt.Errorf("ProtobufCodec.Decode: failed to unmarshal protobuf data (size=%d bytes): %w", len(data), err)
 	}
 
 	// 将 pb.Envelope 转换为 protocol.Envelope
@@ -66,6 +89,11 @@ func (p *ProtobufCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
 		Ts:          protoMessage.GetTimestamp(),
 		Data:        protoMessage.GetData(),
 	}
+	
+	if result.Type == "" {
+		return fmt.Errorf("ProtobufCodec.Decode: decoded envelope missing required field 'type'")
+	}
+	
 	*e = result
 	return nil
 }

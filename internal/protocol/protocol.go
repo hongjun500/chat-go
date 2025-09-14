@@ -13,6 +13,7 @@ type Protocol struct {
 	handlers       map[MessageType]MessageHandler
 	defaultHandler MessageHandler
 	Codec          MessageCodec
+	config         CodecConfig
 }
 
 var DefaultProtocol *Protocol
@@ -24,10 +25,33 @@ func init() {
 }
 
 func NewProtocol(codecType int) *Protocol {
+	config := NewDefaultCodecConfig(codecType)
+	factory, exists := CodecFactories[codecType]
+	if !exists {
+		// 回退到JSON编码器作为默认
+		factory = CodecFactories[CodecJson]
+		config = NewDefaultCodecConfig(CodecJson)
+	}
+	codec := factory()
 	return &Protocol{
 		handlers: make(map[MessageType]MessageHandler),
-		Codec:    CodecFactories[codecType](),
+		Codec:    codec,
+		config:   config,
 	}
+}
+
+// NewProtocolWithConfig 使用配置创建协议
+func NewProtocolWithConfig(config CodecConfig) (*Protocol, error) {
+	codecType := config.GetDefaultCodec()
+	codec, err := NewCodec(codecType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create codec: %w", err)
+	}
+	return &Protocol{
+		handlers: make(map[MessageType]MessageHandler),
+		Codec:    codec,
+		config:   config,
+	}, nil
 }
 
 func (d *Protocol) RegisterHandler(msgType MessageType, handler MessageHandler) {
@@ -69,4 +93,47 @@ func (d *Protocol) Welcome(text string) (*Envelope, error) {
 func (d *Protocol) textHandler(env *Envelope) error {
 
 	return nil
+}
+
+// SetCodec 动态设置编码器
+func (d *Protocol) SetCodec(codecType int) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	
+	if !d.config.IsCodecSupported(codecType) {
+		return fmt.Errorf("unsupported codec type: %d", codecType)
+	}
+	
+	codec, err := NewCodec(codecType)
+	if err != nil {
+		return fmt.Errorf("failed to create codec: %w", err)
+	}
+	
+	d.Codec = codec
+	return d.config.SetDefaultCodec(codecType)
+}
+
+// SetCodecByName 根据名称动态设置编码器
+func (d *Protocol) SetCodecByName(name string) error {
+	codecType, err := d.config.GetCodecByName(name)
+	if err != nil {
+		return fmt.Errorf("failed to get codec by name: %w", err)
+	}
+	return d.SetCodec(codecType)
+}
+
+// GetCurrentCodec 获取当前编码器信息
+func (d *Protocol) GetCurrentCodec() (string, int) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	codecType := d.config.GetDefaultCodec()
+	codecName := CodecTypeMapping[codecType]
+	return codecName, codecType
+}
+
+// GetConfig 获取编码器配置
+func (d *Protocol) GetConfig() CodecConfig {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.config
 }
