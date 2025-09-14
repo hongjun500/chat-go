@@ -30,9 +30,9 @@ type MessageCodec interface {
 }
 
 // NewCodec 根据编码类型创建相应的编解码器
-func NewCodec(cc int) (MessageCodec, error) {
-	if factory, ok := CodecFactories[cc]; ok {
+func NewCodec(c int) (MessageCodec, error) {
+	if factory, ok := CodecFactories[c]; ok {
 		return factory(), nil
 	}
-	return nil, fmt.Errorf("unsupported codec type: %d", cc)
+	return nil, fmt.Errorf("unsupported codec type: %d", c)
 }

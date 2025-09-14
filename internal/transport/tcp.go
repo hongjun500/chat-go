@@ -16,21 +16,21 @@ import (
 // tcpSession TCP 会话实现
 type tcpSession struct {
 	*BaseSession
-	conn       net.Conn
-	frameCodec *FrameCodec
-	protocol   *protocol.Protocol
-	writeMu    sync.Mutex
-	closeChan  chan struct{}
+	conn            net.Conn
+	frameCodec      *FrameCodec
+	protocolManager *protocol.Manager
+	writeMu         sync.Mutex
+	closeChan       chan struct{}
 }
 
 // newTcpSession 创建 TCP 会话
-func newTcpSession(id string, conn net.Conn, codecType int) *tcpSession {
+func newTcpSession(id string, conn net.Conn, protocolManager *protocol.Manager) *tcpSession {
 	return &tcpSession{
-		BaseSession: NewBaseSession(id, conn.RemoteAddr().String()),
-		conn:        conn,
-		frameCodec:  NewFrameCodec(),
-		protocol:    protocol.NewProtocol(codecType),
-		closeChan:   make(chan struct{}),
+		BaseSession:     NewBaseSession(id, conn.RemoteAddr().String()),
+		conn:            conn,
+		frameCodec:      NewFrameCodec(),
+		protocolManager: protocolManager,
+		closeChan:       make(chan struct{}),
 	}
 }
 
@@ -43,7 +43,7 @@ func (s *tcpSession) SendEnvelope(e *protocol.Envelope) error {
 	defer s.writeMu.Unlock()
 
 	var buff bytes.Buffer
-	if err := s.protocol.GetCodec().Encode(&buff, e); err != nil {
+	if err := s.protocolManager.EncodeMessage(&buff, e); err != nil {
 		return err
 	}
 
@@ -84,7 +84,7 @@ func (s *tcpSession) readLoop(gateway Gateway, opt Options) {
 		}
 		// 解码消息
 		var envelope protocol.Envelope
-		if err := s.protocol.GetCodec().Decode(bytes.NewReader(frameData), &envelope, opt.MaxFrameSize); err != nil {
+		if err := s.protocolManager.DecodeMessage(bytes.NewReader(frameData), &envelope, opt.MaxFrameSize); err != nil {
 			logger.L().Sugar().Warnw("tcp_decode_error", "session", s.ID(), "err", err)
 			continue
 		}
@@ -112,17 +112,23 @@ func (s *TCPServer) Name() string {
 }
 
 // Start 启动 TCP 服务器
-func (s *TCPServer) Start(ctx context.Context, gateway Gateway, opt Options) error {
+func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
+	// 如果提供了addr参数，使用它覆盖构造时的地址
+	listenAddr := s.addr
+	if addr != "" {
+		listenAddr = addr
+	}
+
 	if opt.MaxFrameSize <= 0 {
 		opt.MaxFrameSize = 1 << 20 // 默认 1MB
 	}
 
-	ln, err := net.Listen(Tcp, s.addr)
+	ln, err := net.Listen(Tcp, listenAddr)
 	if err != nil {
 		return err
 	}
 
-	logger.L().Sugar().Infow("tcp_listen", "addr", s.addr)
+	logger.L().Sugar().Infow("tcp_listen", "addr", listenAddr)
 
 	// 优雅关闭
 	go func() {
@@ -146,8 +152,8 @@ func (s *TCPServer) Start(ctx context.Context, gateway Gateway, opt Options) err
 // handleConnection 处理新连接
 func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn, gateway Gateway, opt Options) {
 	id := uuid.New().String()
-	// 创建会话
-	session := newTcpSession(id, conn, opt.TCPCodec)
+	// 创建会话（使用协议管理器）
+	session := newTcpSession(id, conn, opt.GetTCPProtocolManager())
 
 	// 通知网关会话开启
 	gateway.OnSessionOpen(session)

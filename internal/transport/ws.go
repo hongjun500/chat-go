@@ -1,73 +1,87 @@
 package transport
 
-/*
 import (
 	"bytes"
 	"context"
-	"github.com/hongjun500/chat-go/internal/protocol"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/hongjun500/chat-go/internal/chat"
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"github.com/hongjun500/chat-go/pkg/logger"
 )
 
-// wsConn implements Session for WebSocket connections
-type wsConn struct {
-	id             string
-	conn           *websocket.Conn
-	codec          protocol.MessageCodec
-	client         *chat.Client
-	closeOnce      sync.Once
-	closeChan      chan struct{}
-	payloadEncoder *protocol.PayloadEncoder
+// wsSession WebSocket 会话实现
+type wsSession struct {
+	*BaseSession
+	conn            *websocket.Conn
+	protocolManager *protocol.Manager
+	writeMu         sync.Mutex
+	closeChan       chan struct{}
 }
 
-// WebSocketServer implements Transport using WebSocket connections
-type WebSocketServer struct {
-	Codec protocol.MessageCodec
-	Path  string // WebSocket endpoint path, defaults to "/ws"
+// newWsSession 创建 WebSocket 会话
+func newWsSession(id string, conn *websocket.Conn, protocolManager *protocol.Manager) *wsSession {
+	return &wsSession{
+		BaseSession:     NewBaseSession(id, conn.RemoteAddr().String()),
+		conn:            conn,
+		protocolManager: protocolManager,
+		closeChan:       make(chan struct{}),
+	}
 }
 
-func (w *wsConn) ID() string {
-	return w.id
-}
+// SendEnvelope 发送信封消息
+func (s *wsSession) SendEnvelope(envelope *protocol.Envelope) error {
+	if s.State() == SessionStateClosed {
+		return ErrSessionClosed
+	}
 
-func (w *wsConn) RemoteAddr() string {
-	return w.conn.RemoteAddr().String()
-}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 
-func (w *wsConn) SendEnvelope(m *protocol.Envelope) error {
 	var buffer bytes.Buffer
-	if err := w.codec.Encode(&buffer, m); err != nil {
+	if err := s.protocolManager.EncodeMessage(&buffer, envelope); err != nil {
 		return err
 	}
-	return w.conn.WriteMessage(websocket.TextMessage, buffer.Bytes())
+
+	return s.conn.WriteMessage(websocket.TextMessage, buffer.Bytes())
 }
 
-func (w *wsConn) Close() error {
+// Close 关闭会话
+func (s *wsSession) Close() error {
 	var err error
-	w.closeOnce.Do(func() {
-		err = w.conn.Close()
-		close(w.closeChan)
+	s.closeOnce.Do(func() {
+		s.markClosed()
+		err = s.conn.Close()
+		close(s.closeChan)
 	})
 	return err
 }
 
+// WebSocketServer WebSocket 服务器实现
+type WebSocketServer struct {
+	Path string // WebSocket endpoint path, defaults to "/ws"
+}
+
+// NewWebSocketServer 创建 WebSocket 服务器
+func NewWebSocketServer(path string) *WebSocketServer {
+	if path == "" {
+		path = "/ws"
+	}
+	return &WebSocketServer{
+		Path: path,
+	}
+}
+
+// Name 获取传输类型名称
 func (ws *WebSocketServer) Name() string {
 	return WebSocket
 }
 
+// Start 启动 WebSocket 服务器
 func (ws *WebSocketServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
-	if ws.Codec == nil {
-		ws.Codec = &protocol.JSONCodec{} // default to JSON
-	}
-	if ws.Path == "" {
-		ws.Path = "/ws"
-	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(ws.Path, func(w http.ResponseWriter, r *http.Request) {
 		ws.handleConnection(w, r, gateway, opt)
@@ -80,7 +94,7 @@ func (ws *WebSocketServer) Start(ctx context.Context, addr string, gateway Gatew
 		Handler: mux,
 	}
 
-	// Graceful shutdown
+	// 优雅关闭
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -91,6 +105,7 @@ func (ws *WebSocketServer) Start(ctx context.Context, addr string, gateway Gatew
 	return server.ListenAndServe()
 }
 
+// handleConnection 处理新的 WebSocket 连接
 func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Request, gateway Gateway, opt Options) {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -102,81 +117,66 @@ func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Reque
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		logger.L().Sugar().Warnw("websocket_upgrade_error", "err", err)
 		return
 	}
 
 	id := uuid.New().String()
-	client := chat.NewClientWithBuffer(id, opt.OutBuffer)
-	client.Meta = map[string]string{"level": "0"}
+	session := newWsSession(id, conn, opt.GetWSProtocolManager())
 
-	sess := &wsConn{
-		id:        id,
-		conn:      conn,
-		codec:     ws.Codec,
-		client:    client,
-		closeChan: make(chan struct{}),
-	}
+	// 通知网关会话开启
+	gateway.OnSessionOpen(session)
 
-	gateway.OnSessionOpen(sess)
+	// 设置心跳
+	ws.setupHeartbeat(session, opt)
 
-	// Writer goroutine: send outgoing messages from client as Envelope
-	go func() {
-		defer func() {
-			gateway.OnSessionClose(sess, nil)
-			_ = sess.Close()
-		}()
+	// 启动读取循环
+	go ws.readLoop(session, gateway, opt)
+}
 
-		for msg := range client.Outgoing() {
-			if opt.WriteTimeout > 0 {
-				_ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
-			}
-
-			// Convert plain text message to Envelope using payload encoder
-			envelope, _ := sess.payloadEncoder.EncodeText(msg)
-			envelope.Ts = time.Now().UnixMilli()
-
-			if err := sess.SendEnvelope(envelope); err != nil {
-				logger.L().Sugar().Warnw("ws_write_error", "client", client.ID, "err", err)
-				return
-			}
-		}
-	}()
-
-	// Setup heartbeat
+// setupHeartbeat 设置心跳机制
+func (ws *WebSocketServer) setupHeartbeat(session *wsSession, opt Options) {
+	// 设置读取超时
+	timeout := 60 * time.Second
 	if opt.ReadTimeout > 0 {
-		_ = conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout))
-	} else {
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		timeout = opt.ReadTimeout
 	}
 
-	conn.SetPongHandler(func(string) error {
-		deadline := time.Now().Add(60 * time.Second)
-		if opt.ReadTimeout > 0 {
-			deadline = time.Now().Add(opt.ReadTimeout)
-		}
-		return conn.SetReadDeadline(deadline)
+	_ = session.conn.SetReadDeadline(time.Now().Add(timeout))
+
+	// 设置pong处理器
+	session.conn.SetPongHandler(func(string) error {
+		return session.conn.SetReadDeadline(time.Now().Add(timeout))
 	})
 
-	// Periodic ping
+	// 定期发送ping
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
-			case <-sess.closeChan:
+				_ = session.conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+			case <-session.closeChan:
 				return
 			}
 		}
 	}()
+}
 
-	// Reader loop: read messages and convert to Envelope
+// readLoop 读取循环
+func (ws *WebSocketServer) readLoop(session *wsSession, gateway Gateway, opt Options) {
+	defer func() {
+		gateway.OnSessionClose(session)
+		_ = session.Close()
+	}()
+
 	for {
-		mt, data, err := conn.ReadMessage()
+		mt, data, err := session.conn.ReadMessage()
 		if err != nil {
-			gateway.OnSessionClose(sess, err)
+			if session.State() == SessionStateActive {
+				logger.L().Sugar().Warnw("websocket_read_error", "session", session.ID(), "err", err)
+			}
 			return
 		}
 
@@ -184,44 +184,33 @@ func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 
-		// Try to parse as Envelope first, fallback to legacy text message
+		// 尝试解析为 Envelope
 		var envelope protocol.Envelope
-		if err := ws.Codec.Decode(bytes.NewBuffer(data), &envelope, opt.MaxFrameSize); err == nil && envelope.Type != "" {
-			gateway.OnEnvelope(sess, &envelope)
+		if err := session.protocolManager.DecodeMessage(bytes.NewBuffer(data), &envelope, opt.MaxFrameSize); err == nil && envelope.Type != "" {
+			gateway.OnEnvelope(session, &envelope)
 		} else {
-			text := string(data)
-			if text == "" {
-				continue
-			}
-			ws.handleLegacyMessage(sess, text, gateway)
+			// 回退处理纯文本消息（向后兼容）
+			ws.handleLegacyTextMessage(session, string(data), gateway)
 		}
 	}
 }
 
-// handleLegacyMessage processes plain text WebSocket messages for backward compatibility
-func (ws *WebSocketServer) handleLegacyMessage(sess *wsConn, text string, gateway Gateway) {
-	client := sess.client
-
-	// If no name set, treat as set_name
-	if client.Name == "" {
-		envelope, _ := sess.payloadEncoder.EncodeSetName(text)
-		envelope.Ts = time.Now().UnixMilli()
-		gateway.OnEnvelope(sess, envelope)
+// handleLegacyTextMessage 处理纯文本消息（向后兼容）
+func (ws *WebSocketServer) handleLegacyTextMessage(session *wsSession, text string, gateway Gateway) {
+	if text == "" {
 		return
 	}
 
-	// If starts with /, treat as command
+	factory := session.protocolManager.GetMessageFactory()
+
+	// 简单的文本消息处理
 	if len(text) > 0 && text[0] == '/' {
-		envelope, _ := sess.payloadEncoder.EncodeCommand(text)
-		envelope.Ts = time.Now().UnixMilli()
-		gateway.OnEnvelope(sess, envelope)
-		return
+		// 命令消息
+		envelope := factory.CreateCommandMessage(text)
+		gateway.OnEnvelope(session, envelope)
+	} else {
+		// 普通文本消息
+		envelope := factory.CreateTextMessage(text)
+		gateway.OnEnvelope(session, envelope)
 	}
-
-	// Otherwise treat as chat message
-	envelope, _ := sess.payloadEncoder.EncodeChat(text)
-	envelope.From = client.Name
-	envelope.Ts = time.Now().UnixMilli()
-	gateway.OnEnvelope(sess, envelope)
 }
-*/
