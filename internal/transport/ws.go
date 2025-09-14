@@ -17,13 +17,13 @@ import (
 type wsSession struct {
 	*BaseSession
 	conn            *websocket.Conn
-	protocolManager *protocol.ProtocolManager
+	protocolManager *protocol.Manager
 	writeMu         sync.Mutex
 	closeChan       chan struct{}
 }
 
 // newWsSession 创建 WebSocket 会话
-func newWsSession(id string, conn *websocket.Conn, protocolManager *protocol.ProtocolManager) *wsSession {
+func newWsSession(id string, conn *websocket.Conn, protocolManager *protocol.Manager) *wsSession {
 	return &wsSession{
 		BaseSession:     NewBaseSession(id, conn.RemoteAddr().String()),
 		conn:            conn,
@@ -202,7 +202,7 @@ func (ws *WebSocketServer) handleLegacyTextMessage(session *wsSession, text stri
 	}
 
 	factory := session.protocolManager.GetMessageFactory()
-	
+
 	// 简单的文本消息处理
 	if len(text) > 0 && text[0] == '/' {
 		// 命令消息

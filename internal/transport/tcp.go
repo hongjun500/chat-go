@@ -16,15 +16,15 @@ import (
 // tcpSession TCP 会话实现
 type tcpSession struct {
 	*BaseSession
-	conn              net.Conn
-	frameCodec        *FrameCodec
-	protocolManager   *protocol.ProtocolManager
-	writeMu           sync.Mutex
-	closeChan         chan struct{}
+	conn            net.Conn
+	frameCodec      *FrameCodec
+	protocolManager *protocol.Manager
+	writeMu         sync.Mutex
+	closeChan       chan struct{}
 }
 
 // newTcpSession 创建 TCP 会话
-func newTcpSession(id string, conn net.Conn, protocolManager *protocol.ProtocolManager) *tcpSession {
+func newTcpSession(id string, conn net.Conn, protocolManager *protocol.Manager) *tcpSession {
 	return &tcpSession{
 		BaseSession:     NewBaseSession(id, conn.RemoteAddr().String()),
 		conn:            conn,
@@ -118,7 +118,7 @@ func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt
 	if addr != "" {
 		listenAddr = addr
 	}
-	
+
 	if opt.MaxFrameSize <= 0 {
 		opt.MaxFrameSize = 1 << 20 // 默认 1MB
 	}

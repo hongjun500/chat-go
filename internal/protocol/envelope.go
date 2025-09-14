@@ -1,26 +1,5 @@
 package protocol
 
-// Encoding 表示消息负载的编码方式
-type Encoding string
-
-const (
-	EncodingJSON     Encoding = Json
-	EncodingProtobuf Encoding = Protobuf
-)
-
-// MessageType 表示系统支持的业务消息类型
-type MessageType string
-
-const (
-	MsgText      MessageType = "text"
-	MsgCommand   MessageType = "command"
-	MsgFileMeta  MessageType = "file_meta"
-	MsgFileChunk MessageType = "file_chunk"
-	MsgAck       MessageType = "ack"
-	MsgPing      MessageType = "ping"
-	MsgPong      MessageType = "pong"
-)
-
 type Envelope struct {
 	// ---- 协议元信息 ----
 	Version  string      `json:"version"`  // 协议版本

@@ -9,23 +9,18 @@ type handlerFunc func(Session, *protocol.Envelope)
 // SimpleGateway 简单的网关实现，专注于消息转发和会话管理
 // 作为传输层与业务层的桥梁，不直接处理协议编解码
 type SimpleGateway struct {
-	sessionManager    *SessionManager
-	messageHandlers   map[string]handlerFunc
-	protocolManager   *protocol.ProtocolManager
+	sessionManager  *SessionManager
+	messageHandlers map[string]handlerFunc
+	protocolManager *protocol.Manager
 }
 
 // NewSimpleGateway 创建简单网关
-func NewSimpleGateway(protocolManager *protocol.ProtocolManager) *SimpleGateway {
+func NewSimpleGateway(codecType int) *SimpleGateway {
 	return &SimpleGateway{
 		sessionManager:  NewSessionManager(),
 		messageHandlers: make(map[string]handlerFunc),
-		protocolManager: protocolManager,
+		protocolManager: protocol.NewProtocolManager(codecType),
 	}
-}
-
-// NewSimpleGatewayWithCodec 创建简单网关（兼容旧接口）
-func NewSimpleGatewayWithCodec(codecType int) *SimpleGateway {
-	return NewSimpleGateway(protocol.NewProtocolManager(codecType))
 }
 
 // RegisterHandler 注册会话级别的处理器
@@ -67,7 +62,7 @@ func (g *SimpleGateway) GetSessionManager() *SessionManager {
 }
 
 // GetProtocolManager 获取协议管理器
-func (g *SimpleGateway) GetProtocolManager() *protocol.ProtocolManager {
+func (g *SimpleGateway) GetProtocolManager() *protocol.Manager {
 	return g.protocolManager
 }
 
@@ -92,7 +87,6 @@ func (g *SimpleGateway) SendToSession(sessionID string, envelope *protocol.Envel
 
 // sendWelcomeMessage 发送欢迎消息（内部方法）
 func (g *SimpleGateway) sendWelcomeMessage(sess Session) {
-	// 可以在这里定制欢迎逻辑
-	// welcomeMsg := g.protocolManager.GetMessageFactory().CreateTextMessage("Welcome to Chat-Go!")
-	// _ = sess.SendEnvelope(welcomeMsg)
+	welcomeMsg := g.protocolManager.GetMessageFactory().CreateTextMessage("Welcome to Chat-Go!")
+	_ = sess.SendEnvelope(welcomeMsg)
 }

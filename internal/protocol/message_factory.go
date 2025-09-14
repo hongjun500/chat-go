@@ -21,24 +21,18 @@ func NewMessageFactory() *MessageFactory {
 
 // CreateTextMessage 创建文本消息
 func (f *MessageFactory) CreateTextMessage(text string) *Envelope {
-	payload := TextPayload{Text: text}
-	data, _ := json.Marshal(payload)
-	
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgText,
 		Encoding: EncodingJSON,
 		Mid:      uuid.New().String(),
 		Ts:       time.Now().UnixMilli(),
-		Data:     data,
+		Data:     []byte(text),
 	}
 }
 
 // CreateChatMessage 创建聊天消息
 func (f *MessageFactory) CreateChatMessage(from, content string) *Envelope {
-	payload := ChatPayload{Content: content}
-	data, _ := json.Marshal(payload)
-	
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgText,
@@ -46,7 +40,7 @@ func (f *MessageFactory) CreateChatMessage(from, content string) *Envelope {
 		Mid:      uuid.New().String(),
 		From:     from,
 		Ts:       time.Now().UnixMilli(),
-		Data:     data,
+		Data:     []byte(content),
 	}
 }
 
@@ -54,7 +48,7 @@ func (f *MessageFactory) CreateChatMessage(from, content string) *Envelope {
 func (f *MessageFactory) CreateSetNameMessage(name string) *Envelope {
 	payload := SetNamePayload{Name: name}
 	data, _ := json.Marshal(payload)
-	
+
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgText,
@@ -69,7 +63,7 @@ func (f *MessageFactory) CreateSetNameMessage(name string) *Envelope {
 func (f *MessageFactory) CreateCommandMessage(command string) *Envelope {
 	payload := CommandPayload{Raw: command}
 	data, _ := json.Marshal(payload)
-	
+
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgCommand,
@@ -84,7 +78,7 @@ func (f *MessageFactory) CreateCommandMessage(command string) *Envelope {
 func (f *MessageFactory) CreateAckMessage(status string, correlationID string) *Envelope {
 	payload := AckPayload{Status: status}
 	data, _ := json.Marshal(payload)
-	
+
 	return &Envelope{
 		Version:     f.version,
 		Type:        MsgAck,
@@ -103,7 +97,7 @@ func (f *MessageFactory) CreatePingMessage(seq int64) *Envelope {
 		Timestamp: time.Now().UnixMilli(),
 	}
 	data, _ := json.Marshal(payload)
-	
+
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgPing,
@@ -121,7 +115,7 @@ func (f *MessageFactory) CreatePongMessage(seq int64, correlationID string) *Env
 		Timestamp: time.Now().UnixMilli(),
 	}
 	data, _ := json.Marshal(payload)
-	
+
 	return &Envelope{
 		Version:     f.version,
 		Type:        MsgPong,
@@ -140,7 +134,7 @@ func (f *MessageFactory) CreateDirectMessage(from string, to []string, content s
 		Content: content,
 	}
 	data, _ := json.Marshal(payload)
-	
+
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgText,
@@ -155,7 +149,7 @@ func (f *MessageFactory) CreateDirectMessage(from string, to []string, content s
 // CreateFileMetaMessage 创建文件元数据消息
 func (f *MessageFactory) CreateFileMetaMessage(from string, meta FileMetaPayload) *Envelope {
 	data, _ := json.Marshal(meta)
-	
+
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgFileMeta,
@@ -170,7 +164,7 @@ func (f *MessageFactory) CreateFileMetaMessage(from string, meta FileMetaPayload
 // CreateFileChunkMessage 创建文件分片消息
 func (f *MessageFactory) CreateFileChunkMessage(from string, chunk FileChunkPayload) *Envelope {
 	data, _ := json.Marshal(chunk)
-	
+
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgFileChunk,
