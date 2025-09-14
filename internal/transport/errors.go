@@ -1,14 +1,22 @@
 package transport
 
 import (
+	"errors"
 	"fmt"
 )
 
-// 传输层错误定义
+// 基础错误定义
 var (
-	ErrSessionClosed = NewTpError(1001, "Session is closed", "")
-	ErrInvalidCodec  = NewTpError(1002, "Invalid codec type", "")
-	ErrFrameTooLarge = NewTpError(1003, "Frame too large", "")
+	ErrSessionClosed   = errors.New("session is closed")
+	ErrSessionNotFound = errors.New("session not found")
+	ErrInvalidFrame    = errors.New("invalid frame format")
+	ErrFrameTooLarge   = errors.New("frame size exceeds maximum allowed")
+	ErrConnectionLost  = errors.New("connection lost")
+)
+
+// 传输层特定错误
+var (
+	ErrInvalidCodec = NewTpError(1002, "Invalid codec type", "")
 )
 
 type tpError struct {
