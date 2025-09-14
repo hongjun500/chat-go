@@ -22,7 +22,7 @@ type Session interface {
 type Gateway interface {
 	OnSessionOpen(sess Session)
 	OnEnvelope(sess Session, msg *protocol.Envelope)
-	OnSessionClose(sess Session, err error)
+	OnSessionClose(sess Session)
 }
 
 // Transport 统一的消息传输实现

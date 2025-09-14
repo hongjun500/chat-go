@@ -41,19 +41,16 @@ func (r *MessageRouter) Dispatch(env *Envelope) error {
 	r.mu.RLock()
 	handler, ok := r.handlers[env.Type]
 	r.mu.RUnlock()
-	
 	if ok {
 		return handler(env)
 	}
-	
 	r.mu.RLock()
 	defaultHandler := r.defaultHandler
 	r.mu.RUnlock()
-	
+
 	if defaultHandler != nil {
 		return defaultHandler(env)
 	}
-	
 	return fmt.Errorf("no handler registered for message type: %s", env.Type)
 }
 
@@ -61,7 +58,7 @@ func (r *MessageRouter) Dispatch(env *Envelope) error {
 func (r *MessageRouter) GetRegisteredTypes() []MessageType {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	types := make([]MessageType, 0, len(r.handlers))
 	for msgType := range r.handlers {
 		types = append(types, msgType)

@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 )
@@ -33,47 +32,22 @@ func (p *Protocol) SetCodec(codec MessageCodec) {
 	p.codec = codec
 }
 
-// Welcome 创建欢迎消息
-func (p *Protocol) Welcome(text string) *Envelope {
-	text = strings.TrimSpace(text)
-	return &Envelope{
-		Type:    MsgText,
-		Ts:      time.Now().UnixMilli(),
-		Data:    []byte(text),
-		Version: "1.0",
-	}
-}
-
 // CreateTextMessage 创建文本消息
 func (p *Protocol) CreateTextMessage(text string) *Envelope {
 	return &Envelope{
 		Type:    MsgText,
 		Ts:      time.Now().UnixMilli(),
-		Data:    []byte(text),
+		Data:    []byte(strings.TrimSpace(text)),
 		Version: "1.0",
 	}
 }
 
 // CreateAckMessage 创建确认消息
 func (p *Protocol) CreateAckMessage(status string) *Envelope {
-	payload := AckPayload{Status: status}
-	data, _ := p.codec.(*JSONCodec) // 简化处理，实际可以更严谨
-	if data != nil {
-		// 如果是 JSON 编解码器，直接序列化
-		if jsonData, err := json.Marshal(payload); err == nil {
-			return &Envelope{
-				Type:    MsgAck,
-				Ts:      time.Now().UnixMilli(),
-				Data:    jsonData,
-				Version: "1.0",
-			}
-		}
-	}
-	// 回退到简单的字符串格式
 	return &Envelope{
+		Version: "1.0",
 		Type:    MsgAck,
 		Ts:      time.Now().UnixMilli(),
 		Data:    []byte(status),
-		Version: "1.0",
 	}
 }

@@ -65,7 +65,7 @@ func (s *tcpSession) Close() error {
 func (s *tcpSession) readLoop(gateway Gateway, opt Options) {
 	defer func() {
 		// 通知网关会话关闭
-		gateway.OnSessionClose(s, nil)
+		gateway.OnSessionClose(s)
 		_ = s.Close()
 	}()
 
@@ -158,7 +158,7 @@ func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn, gateway
 			_ = session.Close() // 上下文取消时关闭会话
 		case <-session.closeChan:
 			// 会话主动关闭
-			gateway.OnSessionClose(session, nil)
+			gateway.OnSessionClose(session)
 		}
 	}()
 	// 启动读取循环

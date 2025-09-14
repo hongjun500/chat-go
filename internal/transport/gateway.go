@@ -4,15 +4,13 @@ import (
 	"github.com/hongjun500/chat-go/internal/protocol"
 )
 
-// Gateway 接口（保持不变）
-// Gateway consumes high-level Envelope from any Transport
-// 注意：这里不应该包含具体的业务逻辑，只做消息转发
+type handlerFunc func(Session, *protocol.Envelope)
 
 // SimpleGateway 简单的网关实现，专注于消息转发
 type SimpleGateway struct {
 	sessionManager *SessionManager
 	dispatcher     *EnvelopeDispatcher
-	handlers       map[string]func(Session, *protocol.Envelope)
+	handlers       map[string]handlerFunc
 }
 
 // NewSimpleGateway 创建简单网关
@@ -20,12 +18,12 @@ func NewSimpleGateway(codecType int) *SimpleGateway {
 	return &SimpleGateway{
 		sessionManager: NewSessionManager(),
 		dispatcher:     NewEnvelopeDispatcher(codecType),
-		handlers:       make(map[string]func(Session, *protocol.Envelope)),
+		handlers:       make(map[string]handlerFunc),
 	}
 }
 
 // RegisterHandler 注册会话级别的处理器
-func (g *SimpleGateway) RegisterHandler(msgType string, handler func(Session, *protocol.Envelope)) {
+func (g *SimpleGateway) RegisterHandler(msgType string, handler handlerFunc) {
 	g.handlers[msgType] = handler
 }
 
@@ -42,13 +40,13 @@ func (g *SimpleGateway) OnEnvelope(sess Session, msg *protocol.Envelope) {
 		handler(sess, msg)
 		return
 	}
-	
+
 	// 回退到默认分发器
-	_ = g.dispatcher.Dispatch(sess, msg)
+	_ = g.dispatcher.Dispatch(msg)
 }
 
 // OnSessionClose 会话关闭事件
-func (g *SimpleGateway) OnSessionClose(sess Session, err error) {
+func (g *SimpleGateway) OnSessionClose(sess Session) {
 	g.sessionManager.RemoveSession(sess.ID())
 }
 

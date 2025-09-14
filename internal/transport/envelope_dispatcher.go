@@ -17,21 +17,20 @@ func NewEnvelopeDispatcher(codecType int) *EnvelopeDispatcher {
 		protocol: protocol.NewProtocol(codecType),
 		router:   protocol.NewMessageRouter(),
 	}
-	
 	// 注册默认的文本处理器
 	d.router.RegisterHandler(protocol.MsgText, d.textHandler)
-	
 	return d
 }
 
 // Welcome 发送欢迎消息
 func (d *EnvelopeDispatcher) Welcome(sess Session) {
-	envelope := d.protocol.Welcome("请输入昵称并回车：")
-	_ = sess.SendEnvelope(envelope)
+	// envelope := d.protocol.Welcome("请输入昵称并回车：")
+	// _ = sess.SendEnvelope(envelope)
+
 }
 
 // Dispatch 分发消息
-func (d *EnvelopeDispatcher) Dispatch(sess Session, e *protocol.Envelope) error {
+func (d *EnvelopeDispatcher) Dispatch(e *protocol.Envelope) error {
 	return d.router.Dispatch(e)
 }
 
