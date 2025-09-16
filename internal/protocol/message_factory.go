@@ -21,13 +21,15 @@ func NewMessageFactory() *MessageFactory {
 
 // CreateTextMessage 创建文本消息
 func (f *MessageFactory) CreateTextMessage(text string) *Envelope {
+	payload := &TextPayload{Text: text}
+	data, _ := json.Marshal(payload)
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgText,
 		Encoding: EncodingJSON,
 		Mid:      uuid.New().String(),
 		Ts:       time.Now().UnixMilli(),
-		Data:     []byte(text),
+		Data:     data,
 	}
 }
 

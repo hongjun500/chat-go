@@ -24,7 +24,8 @@ func NewFrameCodec() *FrameCodec {
 		bufPool: &sync.Pool{
 			New: func() any {
 				// 使用 64KB 缓冲区，适合大多数场景
-				return make([]byte, 64*1024)
+				b := make([]byte, 64*1024)
+				return &b
 			},
 		},
 	}
