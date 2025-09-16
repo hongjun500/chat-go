@@ -15,7 +15,7 @@ import (
 
 // wsSession WebSocket 会话实现
 type wsSession struct {
-	*BaseSession
+	*Base
 	conn            *websocket.Conn
 	protocolManager *protocol.Manager
 	writeMu         sync.Mutex
@@ -25,7 +25,7 @@ type wsSession struct {
 // newWsSession 创建 WebSocket 会话
 func newWsSession(id string, conn *websocket.Conn, protocolManager *protocol.Manager) *wsSession {
 	return &wsSession{
-		BaseSession:     NewBaseSession(id, conn.RemoteAddr().String()),
+		Base:            NewBase(id, conn.RemoteAddr().String()),
 		conn:            conn,
 		protocolManager: protocolManager,
 		closeChan:       make(chan struct{}),
@@ -53,7 +53,6 @@ func (s *wsSession) SendEnvelope(envelope *protocol.Envelope) error {
 func (s *wsSession) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		s.markClosed()
 		err = s.conn.Close()
 		close(s.closeChan)
 	})
