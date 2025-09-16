@@ -8,6 +8,10 @@ import (
 	"sync"
 )
 
+const (
+	MaxFrameSize = 16 * 1024 * 1024 // 安全上限
+)
+
 // FrameCodec 数据包的编解码器，使用长度前缀帧格式
 type FrameCodec struct {
 	readMu  sync.Mutex // 读锁
@@ -49,44 +53,56 @@ func (c *FrameCodec) WriteFrame(conn net.Conn, payload []byte) error {
 }
 
 // ReadFrame 读取一个帧
-func (c *FrameCodec) ReadFrame(conn net.Conn /*, maxSize int*/) ([]byte, error) {
+func (c *FrameCodec) ReadFrame(conn net.Conn) ([]byte, error) {
+	buf, n, err := c.readFrameInternal(conn)
+	if err != nil {
+		return nil, err
+	}
+	// 安全拷贝
+	data := make([]byte, n)
+	copy(data, (*buf)[:n])
+
+	// 放回缓冲池（重置为 0 长度）
+	*buf = (*buf)[:0]
+	c.bufPool.Put(buf)
+	return data, nil
+}
+
+// 内部通用读取逻辑，返回 *buf 和有效长度
+func (c *FrameCodec) readFrameInternal(conn net.Conn) (*[]byte, int, error) {
 	if c == nil || conn == nil {
-		return nil, fmt.Errorf("framecodec or reader is nil")
+		return nil, 0, fmt.Errorf("framecodec or conn is nil")
 	}
 	c.readMu.Lock()
 	defer c.readMu.Unlock()
+
+	// 读取长度头
 	header := make([]byte, 4)
-	// 使用 io.ReadFull 确保读取完整的 4 字节长度
 	if _, err := io.ReadFull(conn, header); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	// 解析帧长度
 	length := int(binary.BigEndian.Uint32(header))
 
-	/*
-			if maxSize > 0 && length > maxSize {
-		        return nil, fmt.Errorf("frame exceeds max size: %d > %d", length, maxSize)
-		    }
-	*/
-	// 但是
-	// 使用 bufPool 获取一个缓冲区，避免频繁分配
-	buf := c.bufPool.Get().([]byte)
-	if cap(buf) < length {
-		// 容量不足，创建新缓冲区（旧缓冲区丢弃，由GC处理）
-		buf = make([]byte, length)
-	} else {
-		// 复用缓冲区，调整长度
-		buf = buf[:length]
+	// 安全检查
+	if length <= 0 || length > MaxFrameSize {
+		return nil, 0, fmt.Errorf("invalid frame size: %d", length)
 	}
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		c.bufPool.Put(buf) // 读取失败，放回缓冲池
-		return nil, err
-	}
-	// 创建数据的拷贝以确保安全（调用者可以持有）
-	data := make([]byte, length)
-	copy(data, buf)
 
-	// 放回缓冲区（重置为最大容量）
-	c.bufPool.Put(buf[:cap(buf)])
-	return data, nil
+	// 从池里拿 buffer
+	bufPtr := c.bufPool.Get().(*[]byte)
+	buf := *bufPtr
+	if cap(buf) < length {
+		buf = make([]byte, length)
+	}
+	buf = buf[:length]
+
+	// 填充数据
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		*bufPtr = (*bufPtr)[:0] // 归还前 reset
+		c.bufPool.Put(bufPtr)
+		return nil, 0, err
+	}
+
+	*bufPtr = buf
+	return bufPtr, length, nil
 }

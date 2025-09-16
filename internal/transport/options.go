@@ -17,12 +17,12 @@ type Options struct {
 	WSProtocolManager  *protocol.Manager // WebSocket 协议管理器
 }
 
-// GetTCPProtocolManager 获取TCP协议管理器，如果未设置则根据编解码器类型创建
+// GetTCPProtocolManager TCP 协议管理器
 func (o *Options) GetTCPProtocolManager() *protocol.Manager {
 	return o.TCPProtocolManager
 }
 
-// GetWSProtocolManager 获取WebSocket协议管理器，如果未设置则根据编解码器类型创建
+// GetWSProtocolManager WebSocket 协议管理器
 func (o *Options) GetWSProtocolManager() *protocol.Manager {
 	return o.WSProtocolManager
 }
