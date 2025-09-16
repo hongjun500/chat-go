@@ -6,54 +6,46 @@ import (
 
 type handlerFunc func(Session, *protocol.Envelope)
 
+// Gateway 网关接口，*SessionContext 的交互
+// 负责处理会话事件和消息分发
+type Gateway interface {
+	OnSessionOpen(sc *SessionContext)
+	OnEnvelope(sc *SessionContext, msg *protocol.Envelope)
+	OnSessionClose(sc *SessionContext)
+}
+
 // SimpleGateway 简单的网关实现，专注于消息转发和会话管理
-// 作为传输层与业务层的桥梁，不直接处理协议编解码
+// 作为传输层与业务层的桥梁
 type SimpleGateway struct {
-	sessionManager  *SessionManager
-	messageHandlers map[string]handlerFunc
-	protocolManager *protocol.Manager
+	sessionManager *SessionManager
+	disp           *dispatcher
 }
 
 // NewSimpleGateway 创建简单网关
 func NewSimpleGateway(codecType int) *SimpleGateway {
 	return &SimpleGateway{
-		sessionManager:  NewSessionManager(),
-		messageHandlers: make(map[string]handlerFunc),
-		protocolManager: protocol.NewProtocolManager(codecType),
+		sessionManager: NewSessionManager(),
+		disp:           newDispatcher(),
 	}
-}
-
-// RegisterHandler 注册会话级别的处理器
-func (g *SimpleGateway) RegisterHandler(msgType string, handler handlerFunc) {
-	g.messageHandlers[msgType] = handler
 }
 
 // OnSessionOpen 会话开启事件
-func (g *SimpleGateway) OnSessionOpen(sess Session) {
-	g.sessionManager.AddSession(sess)
-	// 发送欢迎消息或进行会话初始化
-	g.sendWelcomeMessage(sess)
+func (g *SimpleGateway) OnSessionOpen(sc *SessionContext) {
+	g.sessionManager.Add(sc.sess)
+	// todo 发送欢迎消息或进行会话初始化
+	// sc.Send()
 }
 
 // OnEnvelope 处理收到的消息
-func (g *SimpleGateway) OnEnvelope(sess Session, msg *protocol.Envelope) {
-	// 首先尝试会话级别的处理器
-	if handler, exists := g.messageHandlers[string(msg.Type)]; exists {
-		handler(sess, msg)
-		return
-	}
-
-	// 回退到协议层的消息路由器
-	if err := g.protocolManager.GetRouter().Dispatch(msg); err != nil {
-		// 如果无法处理，发送错误确认
-		ackMsg := g.protocolManager.GetMessageFactory().CreateAckMessage("unknown_type", msg.Mid)
-		_ = sess.SendEnvelope(ackMsg)
-	}
+func (g *SimpleGateway) OnEnvelope(sc *SessionContext, msg *protocol.Envelope) {
+	// todo 回退到 tp 层的全局处理器
+	g.disp.Dispatch(sc, msg)
 }
 
 // OnSessionClose 会话关闭事件
-func (g *SimpleGateway) OnSessionClose(sess Session) {
-	g.sessionManager.RemoveSession(sess.ID())
+func (g *SimpleGateway) OnSessionClose(sc *SessionContext) {
+	defer g.sessionManager.Remove(sc.Id)
+	_ = sc.Close()
 }
 
 // GetSessionManager 获取会话管理器
@@ -61,17 +53,12 @@ func (g *SimpleGateway) GetSessionManager() *SessionManager {
 	return g.sessionManager
 }
 
-// GetProtocolManager 获取协议管理器
-func (g *SimpleGateway) GetProtocolManager() *protocol.Manager {
-	return g.protocolManager
+// GetSession 获取指定会话
+func (g *SimpleGateway) GetSession(sessionID string) (*SessionContext, bool) {
+	return g.sessionManager.Get(sessionID)
 }
 
-// RegisterProtocolHandler 注册协议层消息处理器
-func (g *SimpleGateway) RegisterProtocolHandler(msgType protocol.MessageType, handler protocol.MessageHandler) {
-	g.protocolManager.RegisterMessageHandler(msgType, handler)
-}
-
-// BroadcastMessage 向所有会话广播消息
+/*// BroadcastMessage 向所有会话广播消息
 func (g *SimpleGateway) BroadcastMessage(envelope *protocol.Envelope) {
 	g.sessionManager.BroadcastToAll(envelope)
 }
@@ -86,7 +73,9 @@ func (g *SimpleGateway) SendToSession(sessionID string, envelope *protocol.Envel
 }
 
 // sendWelcomeMessage 发送欢迎消息（内部方法）
-func (g *SimpleGateway) sendWelcomeMessage(sess Session) {
+func (g *SimpleGateway) sendWelcomeMessage(sc Session) {
+	session, b := g.sessionManager.GetSession(sc.ID())
+
 	welcomeMsg := g.protocolManager.GetMessageFactory().CreateTextMessage("Welcome to Chat-Go!")
-	_ = sess.SendEnvelope(welcomeMsg)
-}
+	_ = sc.SendEnvelope(welcomeMsg)
+}*/

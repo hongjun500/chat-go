@@ -15,7 +15,7 @@ import (
 
 // tcpSession TCP 会话实现
 type tcpSession struct {
-	*BaseSession
+	*Base
 	conn            net.Conn
 	frameCodec      *FrameCodec
 	protocolManager *protocol.Manager
@@ -26,7 +26,7 @@ type tcpSession struct {
 // newTcpSession 创建 TCP 会话
 func newTcpSession(id string, conn net.Conn, protocolManager *protocol.Manager) *tcpSession {
 	return &tcpSession{
-		BaseSession:     NewBaseSession(id, conn.RemoteAddr().String()),
+		Base:            NewBase(id, conn.RemoteAddr().String()),
 		conn:            conn,
 		frameCodec:      NewFrameCodec(),
 		protocolManager: protocolManager,
@@ -54,7 +54,6 @@ func (s *tcpSession) SendEnvelope(e *protocol.Envelope) error {
 func (s *tcpSession) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		s.markClosed()
 		err = s.conn.Close()
 		close(s.closeChan)
 	})
@@ -65,7 +64,7 @@ func (s *tcpSession) Close() error {
 func (s *tcpSession) readLoop(gateway Gateway, opt Options) {
 	defer func() {
 		// 通知网关会话关闭
-		gateway.OnSessionClose(s)
+		gateway.OnSessionClose()
 		_ = s.Close()
 	}()
 

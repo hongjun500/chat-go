@@ -33,11 +33,10 @@ func main() {
 		gw := transport.NewSimpleGateway(cfg.TCPCodec)
 		logger.L().Sugar().Infow("starting_tcp_server", "addr", cfg.TCPAddr, "codec", cfg.TCPCodec)
 		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
-			OutBuffer:          cfg.OutBuffer,
-			ReadTimeout:        time.Duration(cfg.ReadTimeout) * time.Second,
-			WriteTimeout:       time.Duration(cfg.WriteTimeout) * time.Second,
-			MaxFrameSize:       cfg.MaxFrameSize,
-			TCPProtocolManager: gw.GetProtocolManager(),
+			OutBuffer:    cfg.OutBuffer,
+			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
+			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
+			MaxFrameSize: cfg.MaxFrameSize,
 		})
 	}()
 	go func() {
@@ -45,10 +44,9 @@ func main() {
 		gw := transport.NewSimpleGateway(cfg.WSCodec)
 		logger.L().Sugar().Infow("starting_ws_server", "addr", cfg.WSAddr, "codec", cfg.WSCodec)
 		_ = wsSrv.Start(context.Background(), cfg.WSAddr, gw, transport.Options{
-			OutBuffer:         cfg.OutBuffer,
-			ReadTimeout:       time.Duration(cfg.ReadTimeout) * time.Second,
-			WriteTimeout:      time.Duration(cfg.WriteTimeout) * time.Second,
-			WSProtocolManager: gw.GetProtocolManager(),
+			OutBuffer:    cfg.OutBuffer,
+			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
+			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
 		})
 	}()
 	go func() {

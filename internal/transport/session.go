@@ -1,8 +1,10 @@
 package transport
 
 import (
-	"github.com/hongjun500/chat-go/internal/protocol"
 	"sync"
+	"sync/atomic"
+
+	"github.com/hongjun500/chat-go/internal/protocol"
 )
 
 // SessionState 会话状态
@@ -13,139 +15,80 @@ const (
 	SessionStateClosed
 )
 
-// BaseSession 基础会话实现，提供通用功能
-type BaseSession struct {
-	id            string
-	remoteAddr    string
-	state         SessionState
-	stateMu       sync.RWMutex
-	metadata      map[string]string
-	metaMu        sync.RWMutex
-	closeHandlers []func()
-	closeOnce     sync.Once
+const (
+	SessionContextUnClosed = iota
+	SessionContextClosed
+)
+
+// Session 传输层统一的会话管理接口
+// 负责底层连接的生命周期管理和数据传输
+type Session interface {
+	ID() string
+	RemoteAddr() string
+	SendEnvelope(*protocol.Envelope) error // 发送消息到客户端
+	Close() error
 }
 
-// NewBaseSession 创建基础会话
-func NewBaseSession(id, remoteAddr string) *BaseSession {
-	return &BaseSession{
+// Base 基础会话实现，提供通用功能
+type Base struct {
+	id         string
+	remoteAddr string
+	state      SessionState
+	stateMu    sync.RWMutex
+	closeOnce  sync.Once
+}
+
+type SessionContext struct {
+	Id         string
+	RemoteAddr string
+	sess       Session
+
+	closed    int32
+	closeOnce sync.Once
+}
+
+// NewBase 提供会话的基础信息
+func NewBase(id, remoteAddr string) *Base {
+	return &Base{
 		id:         id,
 		remoteAddr: remoteAddr,
 		state:      SessionStateActive,
-		metadata:   make(map[string]string),
 	}
 }
 
 // ID 获取会话ID
-func (s *BaseSession) ID() string {
+func (s *Base) ID() string {
 	return s.id
 }
 
 // RemoteAddr 获取远程地址
-func (s *BaseSession) RemoteAddr() string {
+func (s *Base) RemoteAddr() string {
 	return s.remoteAddr
 }
 
 // State 获取会话状态
-func (s *BaseSession) State() SessionState {
+func (s *Base) State() SessionState {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
 	return s.state
 }
 
-// SetMetadata 设置元数据
-func (s *BaseSession) SetMetadata(key, value string) {
-	s.metaMu.Lock()
-	defer s.metaMu.Unlock()
-	s.metadata[key] = value
+func NewSessionContext(s Session) *SessionContext {
+	return &SessionContext{Id: s.ID(), RemoteAddr: s.RemoteAddr(), sess: s}
 }
 
-// GetMetadata 获取元数据
-func (s *BaseSession) GetMetadata(key string) (string, bool) {
-	s.metaMu.RLock()
-	defer s.metaMu.RUnlock()
-	value, exists := s.metadata[key]
-	return value, exists
-}
-
-// AddCloseHandler 添加关闭处理器
-func (s *BaseSession) AddCloseHandler(handler func()) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	if s.state == SessionStateClosed {
-		// 如果已关闭，立即执行
-		go handler()
-		return
+func (sc *SessionContext) Send(e *protocol.Envelope) error {
+	if atomic.LoadInt32(&sc.closed) == SessionContextClosed {
+		return ErrSessionContextClosed
 	}
-	s.closeHandlers = append(s.closeHandlers, handler)
+	return sc.sess.SendEnvelope(e)
 }
 
-// markClosed 标记会话为已关闭状态（内部方法）
-func (s *BaseSession) markClosed() {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-
-	if s.state == SessionStateClosed {
-		return
-	}
-
-	s.state = SessionStateClosed
-
-	// 执行关闭处理器
-	for _, handler := range s.closeHandlers {
-		go handler()
-	}
-	s.closeHandlers = nil
-}
-
-// SessionManager 会话管理器
-type SessionManager struct {
-	sessions sync.Map
-}
-
-// NewSessionManager 创建会话管理器
-func NewSessionManager() *SessionManager {
-	return &SessionManager{}
-}
-
-// AddSession 添加会话
-func (sm *SessionManager) AddSession(session Session) {
-	sm.sessions.Store(session.ID(), session)
-}
-
-// RemoveSession 移除会话
-func (sm *SessionManager) RemoveSession(sessionID string) {
-	sm.sessions.Delete(sessionID)
-}
-
-// GetSession 获取会话
-func (sm *SessionManager) GetSession(sessionID string) (Session, bool) {
-	session, exists := sm.sessions.Load(sessionID)
-	if !exists {
-		return nil, false
-	}
-	if s, ok := session.(Session); ok {
-		return s, true
-	}
-	return nil, false
-}
-
-// GetAllSessions 获取所有会话
-func (sm *SessionManager) GetAllSessions() []Session {
-	sessions := make([]Session, 0)
-	sm.sessions.Range(func(key, value any) bool {
-		sessions = append(sessions, value.(Session))
-		return true
+func (sc *SessionContext) Close() error {
+	var err error
+	sc.closeOnce.Do(func() {
+		atomic.StoreInt32(&sc.closed, SessionContextClosed)
+		err = sc.sess.Close()
 	})
-	return sessions
-}
-
-// BroadcastToAll 向所有会话广播消息
-func (sm *SessionManager) BroadcastToAll(envelope *protocol.Envelope) {
-	sessions := sm.GetAllSessions()
-	for _, session := range sessions {
-		// 非阻塞发送，避免单个会话阻塞影响其他会话
-		go func(s Session) {
-			_ = s.SendEnvelope(envelope)
-		}(session)
-	}
+	return err
 }

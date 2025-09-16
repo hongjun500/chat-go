@@ -5,18 +5,15 @@ import (
 	"fmt"
 )
 
-// 基础错误定义
+// tp errs
 var (
 	ErrSessionClosed   = errors.New("session is closed")
 	ErrSessionNotFound = errors.New("session not found")
 	ErrInvalidFrame    = errors.New("invalid frame format")
 	ErrFrameTooLarge   = errors.New("frame size exceeds maximum allowed")
 	ErrConnectionLost  = errors.New("connection lost")
-)
 
-// 传输层特定错误
-var (
-	ErrInvalidCodec = NewTpError(1002, "Invalid codec type", "")
+	ErrSessionContextClosed = newTpError(1001, "Session context is closed", "")
 )
 
 type tpError struct {
@@ -32,7 +29,7 @@ func (e *tpError) Error() string {
 	return fmt.Sprintf("Error %d: %s", e.code, e.msg)
 }
 
-func NewTpError(code int, message string, context string) *tpError {
+func newTpError(code int, message string, context string) *tpError {
 	return &tpError{
 		code:    code,
 		msg:     message,
