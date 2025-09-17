@@ -16,10 +16,12 @@ func NewSessionManager() *SessionManager {
 	return &SessionManager{}
 }
 
-// Add Session & return SessionContext
-func (sm *SessionManager) Add(session Session) *SessionContext {
-	sc := NewSessionContext(session)
-	sm.Store(session.ID(), sc)
+// AddContext 将已有的 SessionContext 注册到管理器
+func (sm *SessionManager) AddContext(sc *SessionContext) *SessionContext {
+	if sc == nil {
+		return nil
+	}
+	sm.Store(sc.Id, sc)
 	atomic.AddInt64(&sm.count, 1)
 	return sc
 }
@@ -49,9 +51,12 @@ func (sm *SessionManager) Get(id string) (*SessionContext, bool) {
 
 // GetAll 获取所有会话
 func (sm *SessionManager) GetAll() []*SessionContext {
-	scs := make([]*SessionContext, sm.Count())
+	// 修复：避免使用 make with count 然后 append 导致长度问题，改用动态构建切片
+	scs := make([]*SessionContext, 0)
 	sm.Range(func(key, value any) bool {
-		scs = append(scs, value.(*SessionContext))
+		if v, ok := value.(*SessionContext); ok {
+			scs = append(scs, v)
+		}
 		return true
 	})
 	return scs

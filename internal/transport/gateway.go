@@ -1,6 +1,9 @@
 package transport
 
 import (
+	"encoding/json"
+	"sync"
+
 	"github.com/hongjun500/chat-go/internal/protocol"
 	"github.com/hongjun500/chat-go/pkg/logger"
 )
@@ -20,6 +23,8 @@ type Gateway interface {
 type SimpleGateway struct {
 	sessionManager *SessionManager
 	disp           *dispatcher
+
+	initOnce sync.Once
 }
 
 // NewSimpleGateway 创建简单网关
@@ -33,8 +38,32 @@ func NewSimpleGateway() *SimpleGateway {
 // OnSessionOpen 会话开启事件
 func (g *SimpleGateway) OnSessionOpen(sc *SessionContext) {
 	logger.L().Sugar().Infow("OnSessionOpen", "SessionId", sc.Id, "addr", sc.RemoteAddr)
-	g.sessionManager.Add(sc.sess)
-	// todo 发送欢迎消息或进行会话初始化
+	// 使用已有的 SessionContext 注册到会话管理器，保持上下文对象一致性
+	g.sessionManager.AddContext(sc)
+
+	// todo 放到 网关的 dispatcher
+	// 初始化内置处理器（只执行一次）
+	g.initOnce.Do(func() {
+		// 处理 ping -> 返回 pong
+		g.disp.Register(string(protocol.MsgPing), func(ctx *SessionContext, msg *protocol.Envelope) {
+			// 试图解析 ping payload
+			var p protocol.PingPayload
+			_ = json.Unmarshal(msg.Data, &p) // 若解析失败，仍然返回 pong（seq 为 0）
+			// 创建 pong（使用原 message id 作为 correlation）
+			pong := protocol.NewMessageFactory().CreatePongMessage(p.Seq, msg.Mid)
+			if err := ctx.Send(pong); err != nil {
+				logger.L().Sugar().Warnw("send_pong_failed", "session", ctx.Id, "err", err)
+			}
+		})
+
+		// 可在此注册更多基础处理器（如 command、ack 等），保持简洁最小化实现
+	})
+
+	// 发送欢迎消息（非阻塞，记录错误）
+	welcome := protocol.NewMessageFactory().CreateTextMessage("Welcome to Chat-Go!")
+	if err := sc.Send(welcome); err != nil {
+		logger.L().Sugar().Warnw("send_welcome_failed", "session", sc.Id, "err", err)
+	}
 }
 
 // OnEnvelope 处理收到的消息
