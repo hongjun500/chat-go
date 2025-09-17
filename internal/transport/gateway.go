@@ -2,6 +2,7 @@ package transport
 
 import (
 	"github.com/hongjun500/chat-go/internal/protocol"
+	"github.com/hongjun500/chat-go/pkg/logger"
 )
 
 type handlerFunc func(Session, *protocol.Envelope)
@@ -31,9 +32,9 @@ func NewSimpleGateway() *SimpleGateway {
 
 // OnSessionOpen 会话开启事件
 func (g *SimpleGateway) OnSessionOpen(sc *SessionContext) {
+	logger.L().Sugar().Infow("OnSessionOpen", "SessionId", sc.Id, "addr", sc.RemoteAddr)
 	g.sessionManager.Add(sc.sess)
 	// todo 发送欢迎消息或进行会话初始化
-	// sc.Send()
 }
 
 // OnEnvelope 处理收到的消息

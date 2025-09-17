@@ -158,6 +158,7 @@ func (s *tcpSession) readLoop(gateway Gateway, sessionContext *SessionContext, o
 				logger.L().Sugar().Warnw("tcp_read_error", "session", s.ID(), "err", err)
 			}
 			continue
+			// gateway.OnSessionClose(sessionContext)
 		}
 		// 解码消息
 		var envelope protocol.Envelope

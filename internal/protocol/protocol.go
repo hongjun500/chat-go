@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"fmt"
 	"io"
 )
 
@@ -30,7 +29,6 @@ const (
 type Manager struct {
 	codec   MessageCodec
 	factory *MessageFactory
-	router  *MessageRouter
 }
 
 // NewProtocolManager 创建协议管理器
@@ -43,7 +41,6 @@ func NewProtocolManager(codecType int) *Manager {
 	return &Manager{
 		codec:   codec,
 		factory: NewMessageFactory(),
-		router:  NewMessageRouter(),
 	}
 }
 
@@ -57,11 +54,6 @@ func (p *Manager) GetMessageFactory() *MessageFactory {
 	return p.factory
 }
 
-// GetRouter 获取消息路由器
-func (p *Manager) GetRouter() *MessageRouter {
-	return p.router
-}
-
 // EncodeMessage 编码消息
 func (p *Manager) EncodeMessage(w io.Writer, envelope *Envelope) error {
 	return p.codec.Encode(w, envelope)
@@ -70,24 +62,4 @@ func (p *Manager) EncodeMessage(w io.Writer, envelope *Envelope) error {
 // DecodeMessage 解码消息
 func (p *Manager) DecodeMessage(r io.Reader, envelope *Envelope, maxSize int) error {
 	return p.codec.Decode(r, envelope, maxSize)
-}
-
-// ProcessMessage 处理消息（解码+路由）
-func (p *Manager) ProcessMessage(r io.Reader, maxSize int) error {
-	var envelope Envelope
-	if err := p.DecodeMessage(r, &envelope, maxSize); err != nil {
-		return fmt.Errorf("failed to decode message: %w", err)
-	}
-
-	return p.router.Dispatch(&envelope)
-}
-
-// RegisterMessageHandler 注册消息处理器
-func (p *Manager) RegisterMessageHandler(msgType MessageType, handler MessageHandler) {
-	p.router.RegisterHandler(msgType, handler)
-}
-
-// SetDefaultMessageHandler 设置默认消息处理器
-func (p *Manager) SetDefaultMessageHandler(handler MessageHandler) {
-	p.router.SetDefaultHandler(handler)
 }
