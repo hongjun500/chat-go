@@ -22,7 +22,7 @@ type SimpleGateway struct {
 }
 
 // NewSimpleGateway 创建简单网关
-func NewSimpleGateway(codecType int) *SimpleGateway {
+func NewSimpleGateway() *SimpleGateway {
 	return &SimpleGateway{
 		sessionManager: NewSessionManager(),
 		disp:           newDispatcher(),

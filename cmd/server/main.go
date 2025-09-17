@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/hongjun500/chat-go/internal/protocol"
 	"time"
 
 	"github.com/hongjun500/chat-go/internal/bus/redisstream"
@@ -30,23 +31,27 @@ func main() {
 	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
 	go func() {
 		tcpSrv := transport.NewTCPServer(cfg.TCPAddr)
-		gw := transport.NewSimpleGateway(cfg.TCPCodec)
+		gw := transport.NewSimpleGateway()
 		logger.L().Sugar().Infow("starting_tcp_server", "addr", cfg.TCPAddr, "codec", cfg.TCPCodec)
 		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
 			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
 			MaxFrameSize: cfg.MaxFrameSize,
+			// 配置协议管理器
+			TCPProtocolManager: protocol.NewProtocolManager(cfg.TCPCodec),
 		})
 	}()
 	go func() {
 		wsSrv := transport.NewWebSocketServer("/ws")
-		gw := transport.NewSimpleGateway(cfg.WSCodec)
+		gw := transport.NewSimpleGateway()
 		logger.L().Sugar().Infow("starting_ws_server", "addr", cfg.WSAddr, "codec", cfg.WSCodec)
 		_ = wsSrv.Start(context.Background(), cfg.WSAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
 			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
+			// 配置协议管理器
+			WSProtocolManager: protocol.NewProtocolManager(cfg.WSCodec),
 		})
 	}()
 	go func() {

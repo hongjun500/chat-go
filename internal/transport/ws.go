@@ -121,16 +121,18 @@ func (ws *WebSocketServer) handleConnection(w http.ResponseWriter, r *http.Reque
 	}
 
 	id := uuid.New().String()
+	// 创建会话
 	session := newWsSession(id, conn, opt.GetWSProtocolManager())
-
+	// 创建会话上下文
+	sc := NewSessionContext(session)
 	// 通知网关会话开启
-	gateway.OnSessionOpen(session)
+	gateway.OnSessionOpen(sc)
 
 	// 设置心跳
 	ws.setupHeartbeat(session, opt)
 
 	// 启动读取循环
-	go ws.readLoop(session, gateway, opt)
+	go ws.readLoop(session, gateway, sc, opt)
 }
 
 // setupHeartbeat 设置心跳机制
@@ -164,9 +166,9 @@ func (ws *WebSocketServer) setupHeartbeat(session *wsSession, opt Options) {
 }
 
 // readLoop 读取循环
-func (ws *WebSocketServer) readLoop(session *wsSession, gateway Gateway, opt Options) {
+func (ws *WebSocketServer) readLoop(session *wsSession, gateway Gateway, sc *SessionContext, opt Options) {
 	defer func() {
-		gateway.OnSessionClose(session)
+		gateway.OnSessionClose(sc)
 		_ = session.Close()
 	}()
 
@@ -186,16 +188,16 @@ func (ws *WebSocketServer) readLoop(session *wsSession, gateway Gateway, opt Opt
 		// 尝试解析为 Envelope
 		var envelope protocol.Envelope
 		if err := session.protocolManager.DecodeMessage(bytes.NewBuffer(data), &envelope, opt.MaxFrameSize); err == nil && envelope.Type != "" {
-			gateway.OnEnvelope(session, &envelope)
+			gateway.OnEnvelope(sc, &envelope)
 		} else {
 			// 回退处理纯文本消息（向后兼容）
-			ws.handleLegacyTextMessage(session, string(data), gateway)
+			ws.handleLegacyTextMessage(session, sc, string(data), gateway)
 		}
 	}
 }
 
 // handleLegacyTextMessage 处理纯文本消息（向后兼容）
-func (ws *WebSocketServer) handleLegacyTextMessage(session *wsSession, text string, gateway Gateway) {
+func (ws *WebSocketServer) handleLegacyTextMessage(session *wsSession, sc *SessionContext, text string, gateway Gateway) {
 	if text == "" {
 		return
 	}
@@ -206,10 +208,10 @@ func (ws *WebSocketServer) handleLegacyTextMessage(session *wsSession, text stri
 	if len(text) > 0 && text[0] == '/' {
 		// 命令消息
 		envelope := factory.CreateCommandMessage(text)
-		gateway.OnEnvelope(session, envelope)
+		gateway.OnEnvelope(sc, envelope)
 	} else {
 		// 普通文本消息
 		envelope := factory.CreateTextMessage(text)
-		gateway.OnEnvelope(session, envelope)
+		gateway.OnEnvelope(sc, envelope)
 	}
 }

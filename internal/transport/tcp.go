@@ -60,39 +60,6 @@ func (s *tcpSession) Close() error {
 	return err
 }
 
-// readLoop 读取循环（内部方法）
-func (s *tcpSession) readLoop(gateway Gateway, opt Options) {
-	defer func() {
-		// 通知网关会话关闭
-		gateway.OnSessionClose()
-		_ = s.Close()
-	}()
-
-	for {
-		// 设置读取超时
-		if opt.ReadTimeout > 0 {
-			_ = s.conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout * time.Second))
-		}
-		// 读取帧数据
-		frameData, err := s.frameCodec.ReadFrame(s.conn)
-		if err != nil {
-			if err != io.EOF && s.State() == SessionStateActive {
-				logger.L().Sugar().Warnw("tcp_read_error", "session", s.ID(), "err", err)
-			}
-			continue
-		}
-		// 解码消息
-		var envelope protocol.Envelope
-		if err := s.protocolManager.DecodeMessage(bytes.NewReader(frameData), &envelope, opt.MaxFrameSize); err != nil {
-			logger.L().Sugar().Warnw("tcp_decode_error", "session", s.ID(), "err", err)
-			continue
-		}
-
-		// 传递给网关处理
-		gateway.OnEnvelope(s, &envelope)
-	}
-}
-
 // TCPServer TCP 服务器实现
 type TCPServer struct {
 	addr string
@@ -153,9 +120,10 @@ func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn, gateway
 	id := uuid.New().String()
 	// 创建会话（使用协议管理器）
 	session := newTcpSession(id, conn, opt.GetTCPProtocolManager())
-
+	// 创建会话上下文
+	sc := NewSessionContext(session)
 	// 通知网关会话开启
-	gateway.OnSessionOpen(session)
+	gateway.OnSessionOpen(sc)
 	// 使用 ctx 控制会话生命周期
 	go func() {
 		select {
@@ -163,9 +131,42 @@ func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn, gateway
 			_ = session.Close() // 上下文取消时关闭会话
 		case <-session.closeChan:
 			// 会话主动关闭
-			gateway.OnSessionClose(session)
+			gateway.OnSessionClose(sc)
 		}
 	}()
 	// 启动读取循环
-	session.readLoop(gateway, opt)
+	session.readLoop(gateway, sc, opt)
+}
+
+// readLoop 读取循环（内部方法）
+func (s *tcpSession) readLoop(gateway Gateway, sessionContext *SessionContext, opt Options) {
+	defer func() {
+		// 通知网关会话关闭
+		gateway.OnSessionClose(sessionContext)
+		_ = s.Close()
+	}()
+
+	for {
+		// 设置读取超时
+		if opt.ReadTimeout > 0 {
+			_ = s.conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout * time.Second))
+		}
+		// 读取帧数据
+		frameData, err := s.frameCodec.ReadFrame(s.conn)
+		if err != nil {
+			if err != io.EOF && s.State() == SessionStateActive {
+				logger.L().Sugar().Warnw("tcp_read_error", "session", s.ID(), "err", err)
+			}
+			continue
+		}
+		// 解码消息
+		var envelope protocol.Envelope
+		if err := s.protocolManager.DecodeMessage(bytes.NewReader(frameData), &envelope, opt.MaxFrameSize); err != nil {
+			logger.L().Sugar().Warnw("tcp_decode_error", "session", s.ID(), "err", err)
+			continue
+		}
+
+		// 传递给网关处理
+		gateway.OnEnvelope(sessionContext, &envelope)
+	}
 }
