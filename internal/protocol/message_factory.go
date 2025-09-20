@@ -33,19 +33,6 @@ func (f *MessageFactory) CreateTextMessage(text string) *Envelope {
 	}
 }
 
-// CreateChatMessage 创建聊天消息
-func (f *MessageFactory) CreateChatMessage(from, content string) *Envelope {
-	return &Envelope{
-		Version:  f.version,
-		Type:     MsgText,
-		Encoding: EncodingJSON,
-		Mid:      uuid.New().String(),
-		From:     from,
-		Ts:       time.Now().UnixMilli(),
-		Data:     []byte(content),
-	}
-}
-
 // CreateSetNameMessage 创建设置昵称消息
 func (f *MessageFactory) CreateSetNameMessage(name string) *Envelope {
 	payload := SetNamePayload{Name: name}
@@ -132,6 +119,7 @@ func (f *MessageFactory) CreatePongMessage(seq int64, correlationID string) *Env
 // CreateDirectMessage 创建私聊消息
 func (f *MessageFactory) CreateDirectMessage(from string, to []string, content string) *Envelope {
 	payload := DirectPayload{
+		From:    from,
 		To:      to,
 		Content: content,
 	}
@@ -142,7 +130,6 @@ func (f *MessageFactory) CreateDirectMessage(from string, to []string, content s
 		Type:     MsgText,
 		Encoding: EncodingJSON,
 		Mid:      uuid.New().String(),
-		From:     from,
 		Ts:       time.Now().UnixMilli(),
 		Data:     data,
 	}
@@ -157,23 +144,22 @@ func (f *MessageFactory) CreateFileMetaMessage(from string, meta FileMetaPayload
 		Type:     MsgFileMeta,
 		Encoding: EncodingJSON,
 		Mid:      uuid.New().String(),
-		From:     from,
-		Ts:       time.Now().UnixMilli(),
-		Data:     data,
+		// From:     from,
+		Ts:   time.Now().UnixMilli(),
+		Data: data,
 	}
 }
 
 // CreateFileChunkMessage 创建文件分片消息
 func (f *MessageFactory) CreateFileChunkMessage(from string, chunk FileChunkPayload) *Envelope {
 	data, _ := json.Marshal(chunk)
-
 	return &Envelope{
 		Version:  f.version,
 		Type:     MsgFileChunk,
 		Encoding: EncodingJSON,
 		Mid:      uuid.New().String(),
-		From:     from,
-		Ts:       time.Now().UnixMilli(),
-		Data:     data,
+		// From:     from,
+		Ts:   time.Now().UnixMilli(),
+		Data: data,
 	}
 }

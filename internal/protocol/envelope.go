@@ -9,9 +9,7 @@ type Envelope struct {
 	// ---- 路由与可靠性 ----
 	Mid         string `json:"mid"`            // 消息唯一ID
 	Correlation string `json:"correlation_id"` // 相关请求ID
-	From        string `json:"from,omitempty"`
-	To          string `json:"to,omitempty"`
-	Ts          int64  `json:"ts"` // 毫秒时间戳
+	Ts          int64  `json:"ts"`             // 毫秒时间戳
 
 	Data []byte `json:"data,omitempty"` // 原始数据
 }
@@ -43,6 +41,7 @@ type AckPayload struct {
 
 // DirectPayload 私聊消息负载
 type DirectPayload struct {
+	From    string   `json:"from"`
 	To      []string `json:"to"`
 	Content string   `json:"content"`
 }
