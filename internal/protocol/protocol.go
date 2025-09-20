@@ -23,6 +23,7 @@ const (
 	MsgAck       MessageType = "ack"
 	MsgPing      MessageType = "ping"
 	MsgPong      MessageType = "pong"
+	MsgHeartbeat MessageType = "heartbeat"
 )
 
 // Manager 协议管理器，负责协议层的核心功能

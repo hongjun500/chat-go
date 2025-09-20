@@ -40,6 +40,8 @@ func main() {
 			MaxFrameSize: cfg.MaxFrameSize,
 			// 配置协议管理器
 			TCPProtocolManager: protocol.NewProtocolManager(cfg.TCPCodec),
+			HeartbeatInterval:  time.Second * 30,
+			HeartbeatTimeout:   time.Minute * 1,
 		})
 	}()
 	go func() {
