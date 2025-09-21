@@ -119,7 +119,6 @@ func (f *MessageFactory) CreatePongMessage(seq int64, correlationID string) *Env
 // CreateDirectMessage 创建私聊消息
 func (f *MessageFactory) CreateDirectMessage(from string, to []string, content string) *Envelope {
 	payload := DirectPayload{
-		From:    from,
 		To:      to,
 		Content: content,
 	}
@@ -129,6 +128,7 @@ func (f *MessageFactory) CreateDirectMessage(from string, to []string, content s
 		Version:  f.version,
 		Type:     MsgText,
 		Encoding: EncodingJSON,
+		From:     from,
 		Mid:      uuid.New().String(),
 		Ts:       time.Now().UnixMilli(),
 		Data:     data,
@@ -144,9 +144,9 @@ func (f *MessageFactory) CreateFileMetaMessage(from string, meta FileMetaPayload
 		Type:     MsgFileMeta,
 		Encoding: EncodingJSON,
 		Mid:      uuid.New().String(),
-		// From:     from,
-		Ts:   time.Now().UnixMilli(),
-		Data: data,
+		From:     from,
+		Ts:       time.Now().UnixMilli(),
+		Data:     data,
 	}
 }
 
@@ -158,8 +158,8 @@ func (f *MessageFactory) CreateFileChunkMessage(from string, chunk FileChunkPayl
 		Type:     MsgFileChunk,
 		Encoding: EncodingJSON,
 		Mid:      uuid.New().String(),
-		// From:     from,
-		Ts:   time.Now().UnixMilli(),
-		Data: data,
+		From:     from,
+		Ts:       time.Now().UnixMilli(),
+		Data:     data,
 	}
 }

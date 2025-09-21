@@ -7,6 +7,7 @@ type Envelope struct {
 	Encoding Encoding    `json:"encoding"` // payload 编码方式
 
 	// ---- 路由与可靠性 ----
+	From        string `json:"from"`
 	Mid         string `json:"mid"`            // 消息唯一ID
 	Correlation string `json:"correlation_id"` // 相关请求ID
 	Ts          int64  `json:"ts"`             // 毫秒时间戳
@@ -41,7 +42,6 @@ type AckPayload struct {
 
 // DirectPayload 私聊消息负载
 type DirectPayload struct {
-	From    string   `json:"from"`
 	To      []string `json:"to"`
 	Content string   `json:"content"`
 }
