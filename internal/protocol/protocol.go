@@ -16,6 +16,7 @@ const (
 type MessageType string
 
 const (
+	MsgNick      MessageType = "nick"
 	MsgText      MessageType = "text"
 	MsgCommand   MessageType = "command"
 	MsgFileMeta  MessageType = "file_meta"

@@ -33,9 +33,9 @@ func (f *MessageFactory) CreateTextMessage(text string) *Envelope {
 	}
 }
 
-// CreateSetNameMessage 创建设置昵称消息
-func (f *MessageFactory) CreateSetNameMessage(name string) *Envelope {
-	payload := SetNamePayload{Name: name}
+// CreateSetNickMessage 创建设置昵称消息
+func (f *MessageFactory) CreateSetNickMessage(nick string) *Envelope {
+	payload := SetNickPayload{Nick: nick}
 	data, _ := json.Marshal(payload)
 
 	return &Envelope{

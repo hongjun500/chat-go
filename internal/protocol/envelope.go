@@ -20,9 +20,9 @@ type TextPayload struct {
 	Text string `json:"text"`
 }
 
-// SetNamePayload 设置昵称消息负载
-type SetNamePayload struct {
-	Name string `json:"name"`
+// SetNickPayload 设置昵称消息负载
+type SetNickPayload struct {
+	Nick string `json:"nick"`
 }
 
 // ChatPayload 聊天消息负载
