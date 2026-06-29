@@ -1,212 +1,111 @@
 package transport
 
 import (
-	"github.com/hongjun500/chat-go/internal/chat"
-	"github.com/hongjun500/chat-go/internal/command"
+	"encoding/json"
+	"sync"
+
 	"github.com/hongjun500/chat-go/internal/protocol"
+	"github.com/hongjun500/chat-go/pkg/logger"
 )
 
-type HandlerFunc func(sess Session, msg *protocol.Envelope)
+type handlerFunc func(Session, *protocol.Envelope)
 
-var handlers = map[string]HandlerFunc{
-	"text": nil,
+// Gateway 网关接口，*SessionContext 的交互
+// 负责处理会话事件和消息分发
+type Gateway interface {
+	OnSessionOpen(sc *SessionContext)
+	OnEnvelope(sc *SessionContext, msg *protocol.Envelope)
+	OnSessionClose(sc *SessionContext)
 }
 
-// GatewayHandler hosts auth/nickname, commands and chat routing in a protocol-agnostic way
-type GatewayHandler struct {
-	Hub        *chat.Hub
-	Commands   *command.Registry
-	dispatcher *EnvelopeDispatcher
+// SimpleGateway 简单的网关实现，专注于消息转发和会话管理
+// 作为传输层与业务层的桥梁
+type SimpleGateway struct {
+	sessionManager *SessionManager
+	disp           *dispatcher
+
+	initOnce sync.Once
 }
 
-// NewGatewayHandler creates a new gateway handler with default payload codec
-func NewGatewayHandler(hub *chat.Hub, commands *command.Registry) *GatewayHandler {
-	g := &GatewayHandler{
-		Hub:      hub,
-		Commands: commands,
-	}
-	g.dispatcher = NewEnvelopeDispatcher()
-	g.dispatcher.ptl = protocol.NewProtocol(protocol.CodecJson)
-	return g
-}
-
-func (g *GatewayHandler) OnSessionOpen(sess Session) {
-	g.dispatcher.Welcome(sess)
-}
-
-func (g *GatewayHandler) OnEnvelope(sess Session, m *protocol.Envelope) {
-	/*err := g.dispatcher.Dispatch(sess, m)
-	// Session 实现中持有 *chat.Client，路由依赖该客户端的 Name 状态。
-	ts := time.Now().UnixMilli()
-	switch m.Type {
-	case "text":
-		// 如果还未设置昵称，则把 text 作为昵称；否则作为普通聊天消息
-		c := getClient(sess)
-		if c.Name == "" {
-			p, err := g.PayloadDecoder.DecodeText(m)
-			if err != nil {
-				ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-				ackEnv.Mid = m.Mid
-				ackEnv.Ts = ts
-				_ = sess.SendEnvelope(ackEnv)
-				return
-			}
-			name := strings.TrimSpace(p.Text)
-			if name == "" {
-				ackEnv, _ := g.PayloadEncoder.EncodeAck("invalid_name")
-				ackEnv.Mid = m.Mid
-				ackEnv.Ts = ts
-				_ = sess.SendEnvelope(ackEnv)
-				return
-			}
-			if g.Hub.IsBanned(name) {
-				textEnv, _ := g.PayloadEncoder.EncodeText("该用户已被封禁")
-				textEnv.Ts = ts
-				_ = sess.SendEnvelope(textEnv)
-				g.Hub.UnregisterClient(c)
-				return
-			}
-			c.Name = name
-			g.Hub.RegisterClient(c)
-			textEnv, _ := g.PayloadEncoder.EncodeText("昵称设置成功：" + c.Name)
-			textEnv.Ts = ts
-			_ = sess.SendEnvelope(textEnv)
-			return
-		}
-		p, err := g.PayloadDecoder.DecodeText(m)
-		if err != nil {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		g.Hub.BroadcastLocal(c.Name, p.Text)
-	case "set_name":
-		c := getClient(sess)
-		if c.Name != "" {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("already_named")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		p, err := g.PayloadDecoder.DecodeSetName(m)
-		if err != nil {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		name := strings.TrimSpace(p.Name)
-		if name == "" {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("invalid_name")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		if g.Hub.IsBanned(name) {
-			textEnv, _ := g.PayloadEncoder.EncodeText("该用户已被封禁")
-			textEnv.Ts = ts
-			_ = sess.SendEnvelope(textEnv)
-			g.Hub.UnregisterClient(c)
-			return
-		}
-		c.Name = name
-		g.Hub.RegisterClient(c)
-		ackEnv, _ := g.PayloadEncoder.EncodeAck("ok")
-		ackEnv.Mid = m.Mid
-		ackEnv.Ts = ts
-		_ = sess.SendEnvelope(ackEnv)
-	case "chat":
-		c := getClient(sess)
-		if c.Name == "" {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("unauthorized")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		p, err := g.PayloadDecoder.DecodeChat(m)
-		if err != nil {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		g.Hub.BroadcastLocal(c.Name, p.Content)
-	case "direct":
-		c := getClient(sess)
-		if c.Name == "" {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("unauthorized")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		p, err := g.PayloadDecoder.DecodeDirect(m)
-		if err != nil {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		// 保持现有 Direct 事件
-		to := ""
-		if len(p.To) > 0 {
-			to = p.To[0]
-		}
-		g.Hub.Emit(&chat.DirectMessageEvent{When: time.Now(), From: c.Name, To: to, Content: p.Content})
-	case "command":
-		c := getClient(sess)
-		p, err := g.PayloadDecoder.DecodeCommand(m)
-		if err != nil {
-			ackEnv, _ := g.PayloadEncoder.EncodeAck("bad_payload")
-			ackEnv.Mid = m.Mid
-			ackEnv.Ts = ts
-			_ = sess.SendEnvelope(ackEnv)
-			return
-		}
-		handled, err := g.Commands.Execute(p.Raw, &command.Context{Hub: g.Hub, Client: c, Raw: p.Raw})
-		if handled && err != nil {
-			textEnv, _ := g.PayloadEncoder.EncodeText("命令错误: " + err.Error())
-			textEnv.Ts = ts
-			_ = sess.SendEnvelope(textEnv)
-		}
-	case "ping":
-		p, _ := g.PayloadDecoder.DecodePing(m)
-		pongEnv, _ := g.PayloadEncoder.EncodePong(p.Seq)
-		pongEnv.Ts = ts
-		_ = sess.SendEnvelope(pongEnv)
-	default:
-		ackEnv, _ := g.PayloadEncoder.EncodeAck("unknown_type")
-		ackEnv.Mid = m.Mid
-		ackEnv.Ts = ts
-		_ = sess.SendEnvelope(ackEnv)
-	}*/
-}
-
-func (g *GatewayHandler) OnSessionClose(sess Session, err error) {
-	c := getClient(sess)
-	if c != nil {
-		g.Hub.UnregisterClient(c)
+// NewSimpleGateway 创建简单网关
+func NewSimpleGateway() *SimpleGateway {
+	return &SimpleGateway{
+		sessionManager: NewSessionManager(),
+		disp:           newDispatcher(),
 	}
 }
 
-// getClient retrieves the chat.Client from various Session implementations
-func getClient(sess Session) *chat.Client {
-	// Try TCP session first
-	if ts, ok := sess.(*tcpConn); ok {
-		return ts.client
+// OnSessionOpen 会话开启事件
+func (g *SimpleGateway) OnSessionOpen(sc *SessionContext) {
+	logger.L().Sugar().Infow("OnSessionOpen", "SessionId", sc.Id, "addr", sc.RemoteAddr)
+	// 使用已有的 SessionContext 注册到会话管理器，保持上下文对象一致性
+	g.sessionManager.AddContext(sc)
+
+	// todo 放到 网关的 dispatcher
+	// 初始化内置处理器（只执行一次）
+	g.initOnce.Do(func() {
+		// 处理 ping -> 返回 pong
+		g.disp.Register(string(protocol.MsgPing), func(ctx *SessionContext, msg *protocol.Envelope) {
+			// 试图解析 ping payload
+			var p protocol.PingPayload
+			_ = json.Unmarshal(msg.Data, &p) // 若解析失败，仍然返回 pong（seq 为 0）
+			// 创建 pong（使用原 message id 作为 correlation）
+			pong := protocol.NewMessageFactory().CreatePongMessage(p.Seq, msg.Mid)
+			if err := ctx.Send(pong); err != nil {
+				logger.L().Sugar().Warnw("send_pong_failed", "session", ctx.Id, "err", err)
+			}
+		})
+
+		// 可在此注册更多基础处理器（如 command、ack 等），保持简洁最小化实现
+	})
+
+	// 发送欢迎消息（非阻塞，记录错误）
+	welcome := protocol.NewMessageFactory().CreateTextMessage("Welcome to Chat-Go!")
+	if err := sc.Send(welcome); err != nil {
+		logger.L().Sugar().Warnw("send_welcome_failed", "session", sc.Id, "err", err)
 	}
-	// Try WebSocket session
-	// [TODO] ws
-	// if ws, ok := sess.(*wsConn); ok {
-	// return ws.client
-	// }
-	return nil
 }
+
+// OnEnvelope 处理收到的消息
+func (g *SimpleGateway) OnEnvelope(sc *SessionContext, msg *protocol.Envelope) {
+	// todo 回退到 tp 层的全局处理器
+	g.disp.Dispatch(sc, msg)
+}
+
+// OnSessionClose 会话关闭事件
+func (g *SimpleGateway) OnSessionClose(sc *SessionContext) {
+	defer g.sessionManager.Remove(sc.Id)
+	_ = sc.Close()
+}
+
+// GetSessionManager 获取会话管理器
+func (g *SimpleGateway) GetSessionManager() *SessionManager {
+	return g.sessionManager
+}
+
+// GetSession 获取指定会话
+func (g *SimpleGateway) GetSession(sessionID string) (*SessionContext, bool) {
+	return g.sessionManager.Get(sessionID)
+}
+
+/*// BroadcastMessage 向所有会话广播消息
+func (g *SimpleGateway) BroadcastMessage(envelope *protocol.Envelope) {
+	g.sessionManager.BroadcastToAll(envelope)
+}
+
+// SendToSession 向指定会话发送消息
+func (g *SimpleGateway) SendToSession(sessionID string, envelope *protocol.Envelope) error {
+	session, exists := g.sessionManager.GetSession(sessionID)
+	if !exists {
+		return ErrSessionNotFound
+	}
+	return session.SendEnvelope(envelope)
+}
+
+// sendWelcomeMessage 发送欢迎消息（内部方法）
+func (g *SimpleGateway) sendWelcomeMessage(sc Session) {
+	session, b := g.sessionManager.GetSession(sc.ID())
+
+	welcomeMsg := g.protocolManager.GetMessageFactory().CreateTextMessage("Welcome to Chat-Go!")
+	_ = sc.SendEnvelope(welcomeMsg)
+}*/

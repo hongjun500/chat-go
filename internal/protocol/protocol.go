@@ -1,72 +1,67 @@
 package protocol
 
 import (
-	"fmt"
-	"strings"
-	"sync"
+	"io"
 )
 
-type MessageHandler func(env *Envelope) error
+// Encoding 表示消息负载的编码方式
+type Encoding string
 
-type Protocol struct {
-	mu             sync.RWMutex
-	handlers       map[MessageType]MessageHandler
-	defaultHandler MessageHandler
-	Codec          MessageCodec
+const (
+	EncodingJSON     Encoding = Json
+	EncodingProtobuf Encoding = Protobuf
+)
+
+// MessageType 表示系统支持的业务消息类型
+type MessageType string
+
+const (
+	MsgNick      MessageType = "nick"
+	MsgText      MessageType = "text"
+	MsgCommand   MessageType = "command"
+	MsgFileMeta  MessageType = "file_meta"
+	MsgFileChunk MessageType = "file_chunk"
+	MsgAck       MessageType = "ack"
+	MsgPing      MessageType = "ping"
+	MsgPong      MessageType = "pong"
+	MsgHeartbeat MessageType = "heartbeat"
+)
+
+// Manager 协议管理器，负责协议层的核心功能
+type Manager struct {
+	codec   MessageCodec
+	factory *MessageFactory
 }
 
-var DefaultProtocol *Protocol
-
-func init() {
-	// 注册内置的 text 消息处理函数
-	DefaultProtocol = NewProtocol(CodecJson)
-	DefaultProtocol.SetDefaultHandler(DefaultProtocol.textHandler)
-}
-
-func NewProtocol(codecType int) *Protocol {
-	return &Protocol{
-		handlers: make(map[MessageType]MessageHandler),
-		Codec:    CodecFactories[codecType](),
+// NewProtocolManager 创建协议管理器
+func NewProtocolManager(codecType int) *Manager {
+	codec, err := NewCodec(codecType)
+	if err != nil {
+		// 如果创建失败，回退到 JSON 编解码器
+		codec = &JSONCodec{}
+	}
+	return &Manager{
+		codec:   codec,
+		factory: NewMessageFactory(),
 	}
 }
 
-func (d *Protocol) RegisterHandler(msgType MessageType, handler MessageHandler) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.handlers[msgType] = handler
+// GetCodec 获取编解码器
+func (p *Manager) GetCodec() MessageCodec {
+	return p.codec
 }
 
-// SetDefaultHandler 设置默认处理函数
-func (d *Protocol) SetDefaultHandler(handler MessageHandler) {
-	d.defaultHandler = handler
+// GetMessageFactory 获取消息工厂
+func (p *Manager) GetMessageFactory() *MessageFactory {
+	return p.factory
 }
 
-// Dispatch 分发消息到对应处理函数
-func (d *Protocol) Dispatch(env *Envelope) error {
-	d.mu.RLock()
-	handler, ok := d.handlers[env.Type]
-	d.mu.RUnlock()
-	if ok {
-		return handler(env)
-	}
-	if d.defaultHandler != nil {
-		return d.defaultHandler(env)
-	}
-	return fmt.Errorf("no handler registered for message type: %s", env.Type)
+// EncodeMessage 编码消息
+func (p *Manager) EncodeMessage(w io.Writer, envelope *Envelope) error {
+	return p.codec.Encode(w, envelope)
 }
 
-// Welcome 发送欢迎消息
-func (d *Protocol) Welcome(text string) (*Envelope, error) {
-	text = strings.TrimSpace(text)
-	e := &Envelope{
-		Type: MsgText,
-		Ts:   0,
-		Data: []byte(text),
-	}
-	return e, nil
-}
-
-func (d *Protocol) textHandler(env *Envelope) error {
-
-	return nil
+// DecodeMessage 解码消息
+func (p *Manager) DecodeMessage(r io.Reader, envelope *Envelope, maxSize int) error {
+	return p.codec.Decode(r, envelope, maxSize)
 }

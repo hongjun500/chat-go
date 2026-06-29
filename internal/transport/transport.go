@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"github.com/hongjun500/chat-go/internal/protocol"
 )
 
 const (
@@ -10,22 +9,8 @@ const (
 	WebSocket = "websocket"
 )
 
-// Session 传输层统一的会话管理
-type Session interface {
-	ID() string
-	RemoteAddr() string
-	SendEnvelope(*protocol.Envelope) error // 发送消息（封装在 Envelope 结构体中）到客户端
-	Close() error
-}
-
-// Gateway consumes high-level Envelope from any Transport
-type Gateway interface {
-	OnSessionOpen(sess Session)
-	OnEnvelope(sess Session, msg *protocol.Envelope)
-	OnSessionClose(sess Session, err error)
-}
-
-// Transport 统一的消息传输实现
+// Transport 统一的传输层接口
+// 负责特定协议(TCP/WebSocket)的网络通信实现
 type Transport interface {
 	Name() string
 	Start(ctx context.Context, addr string, gateway Gateway, opt Options) error

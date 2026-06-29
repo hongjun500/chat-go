@@ -27,46 +27,34 @@ func main() {
 	// 注册标准订阅者合集
 	subscriber.RegisterAll(hub)
 
-	// 创建编解码器
-	tcpCodec, err := protocol.NewCodec(cfg.TCPCodec)
-	if err != nil {
-		logger.L().Sugar().Fatalw("failed_to_create_tcp_codec", "codec", cfg.TCPCodec, "err", err)
-	}
-
-	wsCodec, err := protocol.NewCodec(cfg.WSCodec)
-	if err != nil {
-		logger.L().Sugar().Fatalw("failed_to_create_ws_codec", "codec", cfg.WSCodec, "err", err)
-	}
-
-	logger.L().Sugar().Infow("codec_configuration",
-		"tcp_codec", cfg.TCPCodec,
-		"ws_codec", cfg.WSCodec,
-		"tcp_codec_name", tcpCodec.Name(),
-		"ws_codec_name", wsCodec.Name())
-
 	// 并发启动 TCP/WS/HTTP（静态页 ws.html 用于 WebSocket 测试）
 	// 新抽象：使用协议无关的 Gateway + 统一的Transport接口
 	go func() {
-		tcpSrv := &transport.TCPServer{}
-		gw := transport.NewGatewayHandler(hub, cmdReg)
+		tcpSrv := transport.NewTCPServer(cfg.TCPAddr)
+		gw := transport.NewSimpleGateway()
 		logger.L().Sugar().Infow("starting_tcp_server", "addr", cfg.TCPAddr, "codec", cfg.TCPCodec)
 		_ = tcpSrv.Start(context.Background(), cfg.TCPAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
 			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
 			MaxFrameSize: cfg.MaxFrameSize,
+			// 配置协议管理器
+			TCPProtocolManager: protocol.NewProtocolManager(cfg.TCPCodec),
+			HeartbeatInterval:  time.Second * 30,
+			HeartbeatTimeout:   time.Minute * 1,
 		})
 	}()
 	go func() {
-		// [WebSocket暂未启用]
-		/*wsSrv := &transport.WebSocketServer{Codec: wsCodec}
-		gw := transport.NewGatewayHandler(hub, cmdReg)
+		wsSrv := transport.NewWebSocketServer("/ws")
+		gw := transport.NewSimpleGateway()
 		logger.L().Sugar().Infow("starting_ws_server", "addr", cfg.WSAddr, "codec", cfg.WSCodec)
 		_ = wsSrv.Start(context.Background(), cfg.WSAddr, gw, transport.Options{
 			OutBuffer:    cfg.OutBuffer,
 			ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
-		})*/
+			// 配置协议管理器
+			WSProtocolManager: protocol.NewProtocolManager(cfg.WSCodec),
+		})
 	}()
 	go func() {
 		logger.L().Sugar().Infow("starting_http_server", "addr", cfg.HTTPAddr)

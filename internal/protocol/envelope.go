@@ -1,26 +1,5 @@
 package protocol
 
-// Encoding 表示消息负载的编码方式
-type Encoding string
-
-const (
-	EncodingJSON     Encoding = Json
-	EncodingProtobuf Encoding = Protobuf
-)
-
-// MessageType 表示系统支持的业务消息类型
-type MessageType string
-
-const (
-	MsgText      MessageType = "text"
-	MsgCommand   MessageType = "command"
-	MsgFileMeta  MessageType = "file_meta"
-	MsgFileChunk MessageType = "file_chunk"
-	MsgAck       MessageType = "ack"
-	MsgPing      MessageType = "ping"
-	MsgPong      MessageType = "pong"
-)
-
 type Envelope struct {
 	// ---- 协议元信息 ----
 	Version  string      `json:"version"`  // 协议版本
@@ -28,11 +7,10 @@ type Envelope struct {
 	Encoding Encoding    `json:"encoding"` // payload 编码方式
 
 	// ---- 路由与可靠性 ----
+	From        string `json:"from"`
 	Mid         string `json:"mid"`            // 消息唯一ID
 	Correlation string `json:"correlation_id"` // 相关请求ID
-	From        string `json:"from,omitempty"`
-	To          string `json:"to,omitempty"`
-	Ts          int64  `json:"ts"` // 毫秒时间戳
+	Ts          int64  `json:"ts"`             // 毫秒时间戳
 
 	Data []byte `json:"data,omitempty"` // 原始数据
 }
@@ -42,9 +20,9 @@ type TextPayload struct {
 	Text string `json:"text"`
 }
 
-// SetNamePayload 设置昵称消息负载
-type SetNamePayload struct {
-	Name string `json:"name"`
+// SetNickPayload 设置昵称消息负载
+type SetNickPayload struct {
+	Nick string `json:"nick"`
 }
 
 // ChatPayload 聊天消息负载

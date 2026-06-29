@@ -1,70 +1,112 @@
 package transport
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/google/uuid"
-	"github.com/hongjun500/chat-go/internal/chat"
 	"github.com/hongjun500/chat-go/internal/protocol"
 	"github.com/hongjun500/chat-go/pkg/logger"
-	"go.uber.org/zap/buffer"
-	"net"
-	"sync"
 )
 
-// tcpConn implements Session and holds a *chat.Client for Hub integration
-type tcpConn struct {
-	id         string
-	conn       net.Conn
-	frameCodec *FrameCodec // new structured approach
-	client     *chat.Client
-	closeOnce  sync.Once
-	closeChan  chan struct{}
-	ptl        *protocol.Protocol
-	writeMu    sync.Mutex
+// tcpSession TCP 会话实现
+type tcpSession struct {
+	*Base
+	conn            net.Conn
+	frameCodec      *FrameCodec
+	protocolManager *protocol.Manager
+	writeMu         sync.Mutex
+	closeChan       chan struct{}
+	lastActive      atomic.Value // 上次活动时间
 }
 
-// TCPServer implements Transport using length-prefixed frames and MessageCodec on top
-type TCPServer struct {
-}
-
-func (t *tcpConn) ID() string {
-	return t.id
-}
-func (t *tcpConn) RemoteAddr() string {
-	if t.conn != nil {
-		return t.conn.RemoteAddr().String()
+// newTcpSession 创建 TCP 会话
+func newTcpSession(id string, conn net.Conn, protocolManager *protocol.Manager) *tcpSession {
+	se := &tcpSession{
+		Base:            NewBase(id, conn.RemoteAddr().String()),
+		conn:            conn,
+		frameCodec:      NewFrameCodec(),
+		protocolManager: protocolManager,
+		closeChan:       make(chan struct{}),
 	}
-	return ""
+	se.lastActive.Store(time.Now())
+	return se
 }
 
-func (t *tcpConn) SendEnvelope(e *protocol.Envelope) error {
-	t.writeMu.Lock()
-	defer t.writeMu.Unlock()
-	var buff buffer.Buffer
-	if err := t.ptl.Codec.Encode(&buff, e); err != nil {
+// SendEnvelope 发送信封消息
+func (s *tcpSession) SendEnvelope(e *protocol.Envelope) error {
+	if s.State() == SessionStateClosed {
+		return ErrSessionClosed
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	var buff bytes.Buffer
+	if err := s.protocolManager.EncodeMessage(&buff, e); err != nil {
 		return err
 	}
-	return t.frameCodec.WriteFrame(t.conn, buff.Bytes())
+
+	return s.frameCodec.WriteFrame(s.conn, buff.Bytes())
 }
-func (t *tcpConn) Close() error {
+
+// Close 关闭会话
+func (s *tcpSession) Close() error {
 	var err error
-	t.closeOnce.Do(func() {
-		err = t.conn.Close()
-		close(t.closeChan)
+	s.closeOnce.Do(func() {
+		err = s.conn.Close()
+		close(s.closeChan)
 	})
 	return err
 }
 
-func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
-	if opt.MaxFrameSize <= 0 {
-		opt.MaxFrameSize = 1 << 20
+// TCPServer TCP 服务器实现
+type TCPServer struct {
+	addr string
+}
+
+// NewTCPServer 创建 TCP 服务器
+func NewTCPServer(addr string) *TCPServer {
+	return &TCPServer{
+		addr: addr,
 	}
-	ln, err := net.Listen(Tcp, addr)
+}
+
+// Name 获取传输类型名称
+func (s *TCPServer) Name() string {
+	return Tcp
+}
+
+// Start 启动 TCP 服务器
+func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt Options) error {
+	// 如果提供了addr参数，使用它覆盖构造时的地址
+	listenAddr := s.addr
+	if addr != "" {
+		listenAddr = addr
+	}
+
+	if opt.MaxFrameSize <= 0 {
+		opt.MaxFrameSize = 1 << 20 // 默认 1MB
+	}
+
+	ln, err := net.Listen(Tcp, listenAddr)
 	if err != nil {
 		return err
 	}
-	logger.L().Sugar().Infow("tcp_listen", "addr", addr)
-	go func() { <-ctx.Done(); _ = ln.Close() }()
+
+	logger.L().Sugar().Infow("tcp_listen", "addr", listenAddr)
+
+	// 优雅关闭
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -74,68 +116,94 @@ func (s *TCPServer) Start(ctx context.Context, addr string, gateway Gateway, opt
 			logger.L().Sugar().Warnw("tcp_accept_error", "err", err)
 			continue
 		}
-		go s.serveConn(ctx, conn, gateway, opt)
+		go s.handleConnection(ctx, conn, gateway, opt)
 	}
 }
 
-func (s *TCPServer) Name() string {
-	return Tcp
+// handleConnection 处理新连接
+func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn, gateway Gateway, opt Options) {
+	id := uuid.New().String()
+	// 创建会话（使用协议管理器）
+	session := newTcpSession(id, conn, opt.GetTCPProtocolManager())
+	// 创建会话上下文
+	sc := NewSessionContext(session)
+	// 通知网关会话开启
+	gateway.OnSessionOpen(sc)
+	// 会话生命周期监控
+	go session.lifecycleWatcher(ctx, gateway, sc)
+	// 心跳监控
+	go session.heartbeatWatcher(opt)
+	// 启动读取循环
+	session.readLoop(gateway, sc, opt)
 }
 
-func (s *TCPServer) serveConn(ctx context.Context, conn net.Conn, gateway Gateway, opt Options) {
-	id := uuid.New().String()
-	// Create frame codec for low-level framing
-	framed := NewFrameCodec()
+// lifecycleWatcher 会话生命周期监控
+func (s *tcpSession) lifecycleWatcher(ctx context.Context, gateway Gateway, sc *SessionContext) {
+	select {
+	case <-ctx.Done():
+		_ = s.Close()
+	case <-s.closeChan:
+		// 会话主动关闭
+		gateway.OnSessionClose(sc)
+	}
+}
 
-	// chat client for Hub
-	c := chat.NewClientWithBuffer(id, opt.OutBuffer)
-	c.Meta = map[string]string{"level": "0"}
-    sess := &tcpConn{
-        id:         id,
-        conn:       conn,
-        client:     c,
-        frameCodec: framed,
-        // todo: support other protocols
-        ptl:        protocol.NewProtocol(protocol.CodecJson),
-        closeChan:  make(chan struct{}),
-    }
-    gateway.OnSessionOpen(sess)
+// heartbeatWatcher 心跳监控
+func (s *tcpSession) heartbeatWatcher(opt Options) {
+	if opt.HeartbeatInterval <= 0 || opt.HeartbeatTimeout <= 0 {
+		return
+	}
+	ticker := time.NewTicker(opt.HeartbeatInterval)
+	defer ticker.Stop()
 
-	// writer: drain client outgoing to session (wrap plain text into Envelope with typed payload)
-    go func() {
-        /*for msg := range c.Outgoing() {
-            if opt.WriteTimeout > 0 {
-                _ = conn.SetWriteDeadline(time.Now().Add(opt.WriteTimeout))
-            }
-            sess.gth
-            // Use the payload encoder to create structured envelope
-            envelope, _ := sess.payloadEncoder.EncodeText(msg)
-            envelope.Ts = time.Now().UnixMilli()
-            // just to ensure it's valid
-            if err := s.Codec.Encode(&bytes.Buffer{}, envelope); err != nil {
-                logger.L().Sugar().Warnw("tcp_write_error", "client", c.ID, "err", err)
-                _ = conn.Close()
-                return
-            }
-        }*/
-        // 保持连接存活：等待会话关闭信号
-        <-sess.closeChan
-    }()
-
-	// reader loop
-	for {
-		/*if opt.ReadTimeout > 0 {
-			_ = conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout))
-		}
-		// Use the new structured approach - decode frame and message in one step
-		var env protocol.Envelope
-		if err := s.Codec.Decode(&bytes.Buffer{}, &env, opt.MaxFrameSize); err != nil {
-			if err != io.EOF {
-				logger.L().Sugar().Warnw("tcp_decode_error", "client", id, "err", err)
-			}
-			gateway.OnSessionClose(sess, err)
+	for range ticker.C {
+		last := s.lastActive.Load().(time.Time)
+		// 超过心跳超时，关闭会话
+		if time.Since(last) > opt.HeartbeatTimeout {
+			logger.L().Sugar().Infow("tcp_heartbeat_timeout", "session", s.ID())
+			_ = s.Close()
 			return
 		}
-		gateway.OnEnvelope(sess, &env)*/
+	}
+}
+
+// readLoop 读取循环（内部方法）
+func (s *tcpSession) readLoop(gateway Gateway, sessionContext *SessionContext, opt Options) {
+
+	defer func() {
+		// 通知网关会话关闭
+		gateway.OnSessionClose(sessionContext)
+		_ = s.Close()
+	}()
+
+	for {
+		// 设置读取超时
+		if opt.ReadTimeout > 0 {
+			_ = s.conn.SetReadDeadline(time.Now().Add(opt.ReadTimeout * time.Second))
+		}
+		// 读取帧数据
+		frameData, err := s.frameCodec.ReadFrame(s.conn)
+		if err != nil {
+			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
+				return
+			}
+			if s.State() == SessionStateActive {
+				logger.L().Sugar().Warnw("tcp_read_error", "session", s.ID(), "err", err)
+			}
+			return // 读取错误，退出循环
+		}
+		// 解码消息
+		var envelope protocol.Envelope
+		if err := s.protocolManager.DecodeMessage(bytes.NewReader(frameData), &envelope, opt.MaxFrameSize); err != nil {
+			logger.L().Sugar().Warnw("tcp_decode_error", "session", s.ID(), "err", err)
+			continue
+		}
+		// 更新最后活动时间
+		s.lastActive.Store(time.Now())
+		if envelope.Type == protocol.MsgHeartbeat {
+			continue // 忽略心跳消息不传递给网关
+		}
+		// 传递给网关处理
+		gateway.OnEnvelope(sessionContext, &envelope)
 	}
 }

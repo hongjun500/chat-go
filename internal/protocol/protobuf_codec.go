@@ -21,8 +21,6 @@ func (p *ProtobufCodec) Encode(w io.Writer, e *Envelope) error {
 		Encoding:      toPBEncoding(e.Encoding),
 		MessageId:     e.Mid,
 		CorrelationId: e.Correlation,
-		From:          e.From,
-		To:            e.To,
 		Timestamp:     e.Ts,
 		Data:          e.Data,
 	}
@@ -61,8 +59,6 @@ func (p *ProtobufCodec) Decode(r io.Reader, e *Envelope, maxSize int) error {
 		Encoding:    fromPBEncoding(protoMessage.GetEncoding()),
 		Mid:         protoMessage.GetMessageId(),
 		Correlation: protoMessage.GetCorrelationId(),
-		From:        protoMessage.GetFrom(),
-		To:          protoMessage.GetTo(),
 		Ts:          protoMessage.GetTimestamp(),
 		Data:        protoMessage.GetData(),
 	}
